@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAccount } from "./account-provider";
+import { Logo } from "./logo";
 import { useCart } from "./cart-provider";
 
 const nav = [
@@ -18,9 +19,8 @@ export function Header() {
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-background/85 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-2 px-4 sm:px-6">
-        <Link href="/" className="flex items-center gap-2 text-lg font-semibold tracking-tight">
-          <span className="inline-block h-6 w-6 rounded-full bg-gradient-to-br from-accent to-orange-300" />
-          Nova
+        <Link href="/" aria-label="Nova home" className="shrink-0 transition-opacity hover:opacity-80">
+          <Logo size={30} />
         </Link>
         <nav className="flex items-center gap-1 sm:gap-2">
           {nav.map((item) => {

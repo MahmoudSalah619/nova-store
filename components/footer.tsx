@@ -1,11 +1,12 @@
 import Link from "next/link";
+import { Logo } from "./logo";
 
 export function Footer() {
   return (
     <footer className="mt-24 border-t border-line">
       <div className="mx-auto grid max-w-6xl gap-8 px-4 py-12 text-sm sm:grid-cols-3 sm:px-6">
         <div>
-          <p className="font-semibold">Nova</p>
+          <Logo size={26} />
           <p className="mt-2 max-w-xs text-muted">Fashion and electronics from the brands you love.</p>
         </div>
         <div className="flex flex-col gap-2">
