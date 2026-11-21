@@ -1,11 +1,11 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useCart } from "@/components/cart-provider";
 import { OrderSummary } from "@/components/order-summary";
-import { ProductArt } from "@/components/product-art";
 import { QuantityStepper } from "@/components/quantity-stepper";
-import { formatPrice } from "@/lib/products";
+import { formatPrice } from "@/lib/format";
 
 export default function CartPage() {
   const { items, subtotal, count, ready, setQuantity, remove } = useCart();
@@ -30,18 +30,18 @@ export default function CartPage() {
             <p className="text-sm text-muted">{count} {count === 1 ? "item" : "items"}</p>
             <ul className="mt-4 divide-y divide-line border-y border-line">
               {items.map((item) => (
-                <li key={`${item.slug}-${item.color}`} className="flex gap-4 py-6">
-                  <Link href={`/product/${item.slug}`} className="shrink-0">
-                    <ProductArt product={item.product} className="h-24 w-24 rounded-xl sm:h-28 sm:w-28" />
+                <li key={item.id} className="flex gap-4 py-6">
+                  <Link href={`/product/${item.id}`} className="relative h-28 w-24 shrink-0 overflow-hidden rounded-xl bg-surface sm:h-32 sm:w-28">
+                    <Image src={item.image} alt={item.title} fill sizes="112px" className="object-cover" />
                   </Link>
                   <div className="flex min-w-0 flex-1 flex-col justify-between gap-3">
                     <div className="flex justify-between gap-4">
                       <div className="min-w-0">
-                        <Link href={`/product/${item.slug}`} className="font-medium hover:underline">
-                          {item.product.name}
+                        <Link href={`/product/${item.id}`} className="line-clamp-2 font-medium hover:underline">
+                          {item.title}
                         </Link>
-                        <p className="text-sm text-muted">{item.color}</p>
-                        <p className="text-sm text-muted">{formatPrice(item.product.price)} each</p>
+                        <p className="text-sm text-muted">{item.brand ?? item.category}</p>
+                        <p className="text-sm text-muted">{formatPrice(item.price)} each</p>
                       </div>
                       <p className="font-medium tabular-nums">{formatPrice(item.lineTotal)}</p>
                     </div>
@@ -49,9 +49,10 @@ export default function CartPage() {
                       <QuantityStepper
                         size="sm"
                         value={item.quantity}
-                        onChange={(q) => setQuantity(item.slug, item.color, q)}
+                        max={Math.min(10, item.stock || 10)}
+                        onChange={(q) => setQuantity(item.id, q)}
                       />
-                      <button onClick={() => remove(item.slug, item.color)} className="text-sm text-muted hover:text-foreground">
+                      <button onClick={() => remove(item.id)} className="text-sm text-muted hover:text-foreground">
                         Remove
                       </button>
                     </div>

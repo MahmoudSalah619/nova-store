@@ -1,30 +1,31 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { getProduct, type Product } from "@/lib/products";
+import type { CartProduct } from "@/lib/cart";
 
-export type CartLine = { slug: string; color: string; quantity: number };
-export type CartItem = CartLine & { product: Product; lineTotal: number };
+export type { CartProduct };
+
+export type CartItem = CartProduct & { quantity: number; lineTotal: number };
 
 type CartContextValue = {
   items: CartItem[];
   count: number;
   subtotal: number;
   ready: boolean;
-  add: (slug: string, color: string, quantity?: number) => void;
-  setQuantity: (slug: string, color: string, quantity: number) => void;
-  remove: (slug: string, color: string) => void;
+  add: (product: CartProduct, quantity?: number) => void;
+  setQuantity: (id: string, quantity: number) => void;
+  remove: (id: string) => void;
   clear: () => void;
 };
 
 const CartContext = createContext<CartContextValue | null>(null);
-const STORAGE_KEY = "nova-cart";
+const STORAGE_KEY = "nova-cart-v2";
+const MAX_QTY = 10;
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const [lines, setLines] = useState<CartLine[]>([]);
+  const [lines, setLines] = useState<(CartProduct & { quantity: number })[]>([]);
   const [ready, setReady] = useState(false);
 
-  // Load the saved cart once on the client.
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -40,35 +41,29 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     } catch {}
   }, [lines, ready]);
 
-  const add = useCallback((slug: string, color: string, quantity = 1) => {
+  const cap = (p: CartProduct, q: number) => Math.max(0, Math.min(q, MAX_QTY, p.stock || MAX_QTY));
+
+  const add = useCallback((product: CartProduct, quantity = 1) => {
     setLines((prev) => {
-      const existing = prev.find((l) => l.slug === slug && l.color === color);
+      const existing = prev.find((l) => l.id === product.id);
       if (existing) {
-        return prev.map((l) => (l === existing ? { ...l, quantity: Math.min(l.quantity + quantity, 10) } : l));
+        return prev.map((l) => (l === existing ? { ...product, quantity: cap(product, l.quantity + quantity) } : l));
       }
-      return [...prev, { slug, color, quantity }];
+      return [...prev, { ...product, quantity: cap(product, quantity) }];
     });
   }, []);
 
-  const setQuantity = useCallback((slug: string, color: string, quantity: number) => {
+  const setQuantity = useCallback((id: string, quantity: number) => {
     setLines((prev) =>
-      quantity <= 0
-        ? prev.filter((l) => !(l.slug === slug && l.color === color))
-        : prev.map((l) => (l.slug === slug && l.color === color ? { ...l, quantity: Math.min(quantity, 10) } : l)),
+      quantity <= 0 ? prev.filter((l) => l.id !== id) : prev.map((l) => (l.id === id ? { ...l, quantity: cap(l, quantity) } : l)),
     );
   }, []);
 
-  const remove = useCallback((slug: string, color: string) => {
-    setLines((prev) => prev.filter((l) => !(l.slug === slug && l.color === color)));
-  }, []);
-
+  const remove = useCallback((id: string) => setLines((prev) => prev.filter((l) => l.id !== id)), []);
   const clear = useCallback(() => setLines([]), []);
 
   const value = useMemo<CartContextValue>(() => {
-    const items: CartItem[] = lines.flatMap((line) => {
-      const product = getProduct(line.slug);
-      return product ? [{ ...line, product, lineTotal: product.price * line.quantity }] : [];
-    });
+    const items = lines.map((l) => ({ ...l, lineTotal: l.price * l.quantity }));
     return {
       items,
       count: items.reduce((n, i) => n + i.quantity, 0),
