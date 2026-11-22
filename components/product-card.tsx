@@ -8,7 +8,7 @@ export function ProductCard({ product, priority = false }: { product: Product; p
   const off = discountPercent(product);
   return (
     <Link href={`/product/${product._id}`} className="group block">
-      <div className="relative aspect-[4/5] overflow-hidden rounded-2xl bg-surface">
+      <div className="tile relative aspect-[4/5] overflow-hidden rounded-2xl">
         <Image
           src={product.imageCover}
           alt={product.title}

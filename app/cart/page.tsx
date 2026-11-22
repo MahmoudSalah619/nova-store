@@ -28,10 +28,10 @@ export default function CartPage() {
         <div className="mt-8 grid gap-10 lg:grid-cols-[1fr_360px]">
           <div>
             <p className="text-sm text-muted">{count} {count === 1 ? "item" : "items"}</p>
-            <ul className="mt-4 divide-y divide-line border-y border-line">
+            <ul className="panel mt-4 divide-y divide-line px-5">
               {items.map((item) => (
-                <li key={item.id} className="flex gap-4 py-6">
-                  <Link href={`/product/${item.id}`} className="relative h-28 w-24 shrink-0 overflow-hidden rounded-xl bg-surface sm:h-32 sm:w-28">
+                <li key={item.id} className="flex gap-4 py-5">
+                  <Link href={`/product/${item.id}`} className="tile relative h-28 w-24 shrink-0 overflow-hidden rounded-xl sm:h-32 sm:w-28">
                     <Image src={item.image} alt={item.title} fill sizes="112px" className="object-cover" />
                   </Link>
                   <div className="flex min-w-0 flex-1 flex-col justify-between gap-3">

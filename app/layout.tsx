@@ -4,7 +4,9 @@ import { AccountProvider } from "@/components/account-provider";
 import { CartProvider } from "@/components/cart-provider";
 import { ChatWidget } from "@/components/chat/chat-widget";
 import { Header } from "@/components/header";
+import { InlineScript } from "@/components/inline-script";
 import { Footer } from "@/components/footer";
+import { themeScript } from "@/lib/theme";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -24,7 +26,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`} suppressHydrationWarning>
+      <head>
+        <InlineScript html={themeScript} />
+      </head>
       <body className="flex min-h-full flex-col">
         <AccountProvider>
           <CartProvider>

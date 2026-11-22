@@ -50,7 +50,7 @@ export default async function HomePage() {
             <Link
               key={p._id}
               href={`/product/${p._id}`}
-              className={`group relative overflow-hidden rounded-2xl bg-surface ${i % 2 ? "translate-y-6" : ""} aspect-[4/5]`}
+              className={`tile group relative overflow-hidden rounded-2xl ${i % 2 ? "translate-y-6" : ""} aspect-[4/5]`}
             >
               <Image
                 src={p.imageCover}
@@ -118,7 +118,7 @@ export default async function HomePage() {
               </>
             );
             return count ? (
-              <Link key={c._id} href={`/shop?category=${c._id}`} className="group relative aspect-[4/5] overflow-hidden rounded-2xl bg-surface">
+              <Link key={c._id} href={`/shop?category=${c._id}`} className="tile group relative aspect-[4/5] overflow-hidden rounded-2xl">
                 {inner}
               </Link>
             ) : (

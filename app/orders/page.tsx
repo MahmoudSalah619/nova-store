@@ -73,7 +73,7 @@ function OrderCard({ order }: { order: Order }) {
   const items = order.cartItems.reduce((n, i) => n + i.count, 0);
 
   return (
-    <li className="overflow-hidden rounded-2xl border border-line">
+    <li className="panel overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 bg-surface px-5 py-4 text-sm">
         <div className="flex flex-wrap gap-x-6 gap-y-1">
           <p>
@@ -94,7 +94,7 @@ function OrderCard({ order }: { order: Order }) {
       <ul className="divide-y divide-line">
         {order.cartItems.map((item) => (
           <li key={item._id} className="flex items-center gap-4 px-5 py-4">
-            <Link href={`/product/${item.product._id}`} className="relative h-16 w-14 shrink-0 overflow-hidden rounded-lg bg-surface">
+            <Link href={`/product/${item.product._id}`} className="tile relative h-16 w-14 shrink-0 overflow-hidden rounded-lg">
               <Image src={item.product.imageCover} alt={item.product.title} fill sizes="56px" className="object-cover" />
             </Link>
             <div className="min-w-0 flex-1">

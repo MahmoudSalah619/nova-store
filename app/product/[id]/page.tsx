@@ -90,7 +90,7 @@ export default async function ProductPage({ params }: PageProps<"/product/[id]">
                 <p key={i} className="mt-2 leading-relaxed text-muted">{p}</p>
               ))}
               {specs.length > 0 && (
-                <dl className="mt-3 divide-y divide-line rounded-xl border border-line text-sm">
+                <dl className="mt-3 divide-y divide-line rounded-xl border border-line bg-card text-sm">
                   {specs.map(([k, v], i) => (
                     <div key={i} className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-3 px-4 py-2.5">
                       <dt className="text-muted">{k}</dt>
@@ -109,7 +109,7 @@ export default async function ProductPage({ params }: PageProps<"/product/[id]">
           <h2 className="text-2xl font-semibold tracking-tight">Reviews ({reviews.length})</h2>
           <ul className="mt-6 grid gap-4 md:grid-cols-2">
             {reviews.slice(0, 6).map((r) => (
-              <li key={r._id} className="rounded-2xl bg-surface p-5">
+              <li key={r._id} className="panel p-5">
                 <div className="flex items-center justify-between gap-3">
                   <p className="font-medium">{r.user?.name ?? "Customer"}</p>
                   <Stars rating={r.rating} />

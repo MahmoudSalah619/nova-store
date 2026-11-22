@@ -14,7 +14,7 @@ export function LoginForm() {
   // Only allow same-site paths as a redirect target.
   const next = rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/wishlist";
 
-  const [mode, setMode] = useState<Mode>("signin");
+  const [mode, setMode] = useState<Mode>(params.get("mode") === "signup" ? "signup" : "signin");
   const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", rePassword: "" });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -42,7 +42,7 @@ export function LoginForm() {
 
   if (user) {
     return (
-      <div className="rounded-2xl bg-surface p-8 text-center">
+      <div className="panel p-8 text-center">
         <p className="text-lg font-medium">Signed in as {user.name}</p>
         <p className="mt-1 text-sm text-muted">{user.email}</p>
         <div className="mt-6 flex justify-center gap-3">
@@ -72,7 +72,7 @@ export function LoginForm() {
               setMode(m);
               setError(null);
             }}
-            className={`rounded-full py-2 transition-colors ${mode === m ? "bg-background font-medium shadow-sm" : "text-muted"}`}
+            className={`rounded-full py-2 transition-colors ${mode === m ? "bg-card font-medium shadow-sm" : "text-muted"}`}
           >
             {m === "signin" ? "Sign in" : "Register"}
           </button>

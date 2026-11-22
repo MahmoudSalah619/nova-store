@@ -6,7 +6,7 @@ import { formatPrice } from "@/lib/format";
  */
 export function OrderSummary({ subtotal, children }: { subtotal: number; children?: React.ReactNode }) {
   return (
-    <div className="rounded-2xl bg-surface p-6">
+    <div className="panel p-6">
       <h2 className="text-lg font-semibold">Order summary</h2>
       <dl className="mt-4 space-y-3 text-sm">
         <div className="flex justify-between">

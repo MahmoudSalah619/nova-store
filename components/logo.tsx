@@ -1,39 +1,52 @@
-import { useId } from "react";
-
 /**
- * Nova's mark: a four-point star bursting from a warm gradient tile.
- * A "nova" is a star that suddenly flares brighter, so the star sits slightly off-center with a small spark beside it.
+ * Nova's identity: the word "nova" with its "o" drawn as a ring and a four-point spark.
+ * A nova is a star that suddenly flares, so a spark sits just above the o. It is kept clearly apart from
+ * the ring so the pair reads as a sparkle, not as an arrow or symbol.
  */
-export function LogoMark({ size = 28, className = "" }: { size?: number; className?: string }) {
-  const id = useId();
+
+/** The spark, a four-point star centred on (cx, cy). */
+function sparkPath(cx: number, cy: number, r: number) {
+  const a = r * 0.12;
+  const b = r * 0.3;
+  return `M${cx} ${cy - r}C${cx + a} ${cy - b} ${cx + b} ${cy - a} ${cx + r} ${cy}C${cx + b} ${cy + a} ${cx + a} ${cy + b} ${cx} ${cy + r}C${cx - a} ${cy + b} ${cx - b} ${cy + a} ${cx - r} ${cy}C${cx - b} ${cy - a} ${cx - a} ${cy - b} ${cx} ${cy - r}Z`;
+}
+
+/** The ring and spark on their own, in currentColor. Used as the "o" in the wordmark. */
+export function SparkO({ className = "", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 32 32" className={className} aria-hidden>
-      <defs>
-        <linearGradient id={`${id}-bg`} x1="4" y1="2" x2="28" y2="30" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#ff8a4c" />
-          <stop offset="0.55" stopColor="#ff5a36" />
-          <stop offset="1" stopColor="#e8335a" />
-        </linearGradient>
-      </defs>
-      <rect width="32" height="32" rx="9" fill={`url(#${id}-bg)`} />
-      <path
-        d="M14.5 6.5C15.2 12.4 17.6 14.8 23.5 15.5C17.6 16.2 15.2 18.6 14.5 24.5C13.8 18.6 11.4 16.2 5.5 15.5C11.4 14.8 13.8 12.4 14.5 6.5Z"
-        fill="#fff"
-      />
-      <circle cx="23" cy="8.5" r="1.9" fill="#fff" fillOpacity="0.9" />
-      <circle cx="24.5" cy="23.5" r="1.1" fill="#fff" fillOpacity="0.6" />
+    <svg viewBox="0 0 32 32" className={className} style={style} aria-hidden>
+      <circle cx="14" cy="19" r="8.5" fill="none" stroke="currentColor" strokeWidth="4" />
+      <path d={sparkPath(26, 6, 5)} fill="currentColor" />
     </svg>
   );
 }
 
-/** Mark + wordmark. The wordmark uses currentColor, so it follows light and dark mode. */
+/** App-icon version: the white mark on a coral tile. Used for the chat header and the favicon. */
+export function LogoMark({ size = 28, className = "" }: { size?: number; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" className={className} aria-hidden>
+      <rect width="32" height="32" rx="9" fill="#ff5a36" />
+      <circle cx="13.5" cy="19" r="6.5" fill="none" stroke="#fff" strokeWidth="3.4" />
+      <path d={sparkPath(23.5, 8.5, 4.5)} fill="#fff" />
+    </svg>
+  );
+}
+
+/**
+ * The wordmark. Text follows light/dark mode through currentColor; the "o" is always coral.
+ * `size` is roughly the height of the old icon-plus-text logo, so call sites didn't need to change.
+ */
 export function Logo({ size = 28, className = "" }: { size?: number; className?: string }) {
   return (
-    <span className={`inline-flex items-center gap-2 ${className}`}>
-      <LogoMark size={size} />
-      <span className="font-semibold tracking-[-0.04em]" style={{ fontSize: size * 0.78, lineHeight: 1 }}>
-        nova
-      </span>
+    <span
+      role="img"
+      aria-label="Nova"
+      className={`inline-flex items-center font-semibold tracking-[-0.045em] ${className}`}
+      style={{ fontSize: size * 0.95, lineHeight: 1 }}
+    >
+      <span aria-hidden>n</span>
+      <SparkO className="text-accent" style={{ width: "0.94em", height: "0.94em", margin: "0.07em 0.01em 0" }} />
+      <span aria-hidden>va</span>
     </span>
   );
 }

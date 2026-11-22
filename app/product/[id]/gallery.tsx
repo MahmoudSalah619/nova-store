@@ -8,7 +8,7 @@ export function Gallery({ images, title }: { images: string[]; title: string }) 
 
   return (
     <div className="space-y-4">
-      <div className="relative aspect-square overflow-hidden rounded-3xl bg-surface">
+      <div className="tile relative aspect-square overflow-hidden rounded-3xl">
         <Image src={images[active]} alt={title} fill priority sizes="(min-width: 768px) 50vw, 100vw" className="object-cover" />
       </div>
       {images.length > 1 && (
@@ -19,7 +19,7 @@ export function Gallery({ images, title }: { images: string[]; title: string }) 
               onClick={() => setActive(i)}
               aria-label={`Show image ${i + 1}`}
               aria-pressed={active === i}
-              className={`relative aspect-square overflow-hidden rounded-xl bg-surface ring-2 transition ${
+              className={`relative aspect-square overflow-hidden rounded-xl bg-card ring-2 transition ${
                 active === i ? "ring-foreground" : "ring-transparent opacity-70 hover:opacity-100"
               }`}
             >

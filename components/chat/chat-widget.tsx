@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { STORE } from "@/lib/ai/identity";
-import { LogoMark } from "../logo";
+import { LogoMark, SparkO } from "../logo";
 import { MessageText } from "./message-text";
 import { stripFakeReceipts, useChat } from "./use-chat";
 
@@ -173,8 +173,10 @@ export function ChatWidget() {
         onClick={() => setOpen((o) => !o)}
         aria-label={open ? "Close chat" : `Chat with ${STORE.assistantName}`}
         aria-expanded={open}
-        className={`fixed bottom-5 right-5 z-50 h-14 w-14 items-center justify-center rounded-full shadow-lg transition-transform hover:scale-105 sm:bottom-6 sm:right-6 ${
-          open ? "hidden sm:flex sm:bg-foreground sm:text-background" : "flex"
+        className={`fixed bottom-5 right-5 z-50 items-center rounded-full shadow-lg transition-[transform,box-shadow] duration-300 hover:-translate-y-0.5 hover:shadow-xl sm:bottom-6 sm:right-6 ${
+          open
+            ? "hidden h-12 w-12 justify-center sm:flex sm:bg-foreground sm:text-background"
+            : "flex h-12 gap-2 bg-accent pl-1.5 pr-4 text-white"
         }`}
       >
         {open ? (
@@ -182,7 +184,13 @@ export function ChatWidget() {
             <path d="M6 6l12 12M18 6 6 18" strokeLinecap="round" />
           </svg>
         ) : (
-          <LogoMark size={56} className="rounded-full" />
+          <>
+            {/* The brand's ring-and-spark on a white disc, then a plain label so it's clear what this does. */}
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-accent">
+              <SparkO className="h-6 w-6" />
+            </span>
+            <span className="text-sm font-semibold">Ask {STORE.name}</span>
+          </>
         )}
       </button>
     </>

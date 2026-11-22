@@ -2,7 +2,8 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { useAccount } from "@/components/account-provider";
 import { useCart } from "@/components/cart-provider";
 import { OrderSummary } from "@/components/order-summary";
@@ -10,6 +11,10 @@ import { formatPrice } from "@/lib/format";
 import type { Order, ShippingAddress } from "@/lib/types";
 
 const CITIES = ["Cairo", "Giza", "Alexandria", "Mansoura", "Tanta", "Asyut", "Luxor", "Aswan", "Port Said", "Suez", "Hurghada"];
+
+/** Keeps what a guest typed while they go sign in, so they come back to a filled form. */
+const DRAFT_KEY = "nova-checkout-draft";
+const LOGIN_URL = "/login?next=/checkout";
 
 type Errors = Partial<Record<keyof ShippingAddress, string>>;
 
@@ -22,6 +27,7 @@ function validate(f: ShippingAddress): Errors {
 }
 
 export default function CheckoutPage() {
+  const router = useRouter();
   const { items, subtotal, ready, clear } = useCart();
   const { user, ready: accountReady, api } = useAccount();
   const [fields, setFields] = useState<ShippingAddress>({ details: "", phone: "", city: "Cairo" });
@@ -30,9 +36,22 @@ export default function CheckoutPage() {
   const [error, setError] = useState<string | null>(null);
   const [order, setOrder] = useState<Order | null>(null);
 
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(DRAFT_KEY);
+      if (saved) setFields((f) => ({ ...f, ...JSON.parse(saved) }));
+    } catch {}
+  }, []);
+
   const set = (key: keyof ShippingAddress) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const value = key === "phone" ? e.target.value.replace(/\D/g, "").slice(0, 11) : e.target.value;
-    setFields((f) => ({ ...f, [key]: value }));
+    setFields((f) => {
+      const next = { ...f, [key]: value };
+      try {
+        sessionStorage.setItem(DRAFT_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
     if (errors[key]) setErrors((er) => ({ ...er, [key]: undefined }));
   };
 
@@ -61,11 +80,19 @@ export default function CheckoutPage() {
     const found = validate(fields);
     setErrors(found);
     if (Object.keys(found).length) return;
+    // Guests fill everything in first, then sign in; the saved draft brings them back to this exact form.
+    if (!user) {
+      router.push(LOGIN_URL);
+      return;
+    }
     setError(null);
     try {
       const placed = await placeOrder();
       setOrder(placed);
       clear();
+      try {
+        sessionStorage.removeItem(DRAFT_KEY);
+      } catch {}
       window.scrollTo({ top: 0 });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't place your order. Please try again.");
@@ -113,6 +140,7 @@ export default function CheckoutPage() {
   }
 
   const busy = status !== null;
+  const guest = accountReady && !user;
 
   return (
     <div className="mx-auto max-w-6xl px-4 pt-10 sm:px-6">
@@ -121,63 +149,76 @@ export default function CheckoutPage() {
       </Link>
       <h1 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">Checkout</h1>
 
-      <form onSubmit={onSubmit} noValidate className="mt-8 grid gap-10 lg:grid-cols-[1fr_380px]">
-        <div className="space-y-10">
-          <section>
-            <h2 className="mb-4 text-lg font-semibold">Account</h2>
+      <form onSubmit={onSubmit} noValidate className="mt-8 grid gap-8 lg:grid-cols-[1fr_380px]">
+        <div className="space-y-6">
+          <Step n={1} title="Account" done={!!user}>
             {!accountReady ? (
-              <div className="h-16 animate-pulse rounded-xl bg-surface" />
+              <div className="h-12 animate-pulse rounded-xl bg-surface" />
             ) : user ? (
-              <p className="rounded-xl bg-surface px-4 py-3 text-sm">
-                Ordering as <span className="font-medium">{user.name}</span> <span className="text-muted">({user.email})</span>
-              </p>
-            ) : (
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-surface px-4 py-3 text-sm">
-                <span>Sign in to place your order and track it later.</span>
-                <Link href="/login?next=/checkout" className="btn-primary px-4 py-2 text-sm">
-                  Sign in
+              <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+                <p>
+                  Ordering as <span className="font-medium">{user.name}</span> <span className="text-muted">({user.email})</span>
+                </p>
+                <Link href={LOGIN_URL} className="text-muted underline-offset-4 hover:text-foreground hover:underline">
+                  Not you?
                 </Link>
               </div>
+            ) : (
+              <div className="text-sm">
+                <p className="text-muted">
+                  Orders are linked to an account so you can track them. Fill in your details now; you&apos;ll sign in
+                  when you place the order and come straight back here.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Link href={LOGIN_URL} className="btn-secondary px-4 py-2 text-sm">
+                    Sign in
+                  </Link>
+                  <Link href={`${LOGIN_URL}&mode=signup`} className="btn-secondary px-4 py-2 text-sm">
+                    Create an account
+                  </Link>
+                </div>
+              </div>
             )}
-          </section>
+          </Step>
 
-          <fieldset className="space-y-4" disabled={!user || busy}>
-            <legend className="mb-4 text-lg font-semibold">Shipping address</legend>
-            <Field label="Street address" error={errors.details}>
-              <input
-                className="input"
-                value={fields.details}
-                onChange={set("details")}
-                aria-invalid={!!errors.details}
-                autoComplete="street-address"
-                placeholder="Building, street, area"
-              />
-            </Field>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="City" error={errors.city}>
-                <select className="input" value={fields.city} onChange={set("city")} autoComplete="address-level2">
-                  {CITIES.map((c) => (
-                    <option key={c}>{c}</option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Mobile number" error={errors.phone}>
+          <Step n={2} title="Shipping address">
+            <fieldset className="space-y-4" disabled={busy}>
+              <legend className="sr-only">Shipping address</legend>
+              <Field label="Street address" error={errors.details}>
                 <input
                   className="input"
-                  type="tel"
-                  inputMode="numeric"
-                  value={fields.phone}
-                  onChange={set("phone")}
-                  aria-invalid={!!errors.phone}
-                  autoComplete="tel"
-                  placeholder="01012345678"
+                  value={fields.details}
+                  onChange={set("details")}
+                  aria-invalid={!!errors.details}
+                  autoComplete="street-address"
+                  placeholder="Building, street, area"
                 />
               </Field>
-            </div>
-          </fieldset>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="City" error={errors.city}>
+                  <select className="input" value={fields.city} onChange={set("city")} autoComplete="address-level2">
+                    {CITIES.map((c) => (
+                      <option key={c}>{c}</option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Mobile number" error={errors.phone}>
+                  <input
+                    className="input"
+                    type="tel"
+                    inputMode="numeric"
+                    value={fields.phone}
+                    onChange={set("phone")}
+                    aria-invalid={!!errors.phone}
+                    autoComplete="tel"
+                    placeholder="01012345678"
+                  />
+                </Field>
+              </div>
+            </fieldset>
+          </Step>
 
-          <section>
-            <h2 className="mb-4 text-lg font-semibold">Payment</h2>
+          <Step n={3} title="Payment">
             <div className="flex items-center gap-3 rounded-xl border border-foreground px-4 py-3 text-sm">
               <span className="flex h-4 w-4 items-center justify-center rounded-full border-2 border-foreground">
                 <span className="h-1.5 w-1.5 rounded-full bg-foreground" />
@@ -185,7 +226,7 @@ export default function CheckoutPage() {
               <span className="font-medium">Cash on delivery</span>
               <span className="text-muted">Pay when your order arrives</span>
             </div>
-          </section>
+          </Step>
         </div>
 
         <div className="lg:sticky lg:top-24 lg:self-start">
@@ -194,7 +235,7 @@ export default function CheckoutPage() {
               {items.map((item) => (
                 <li key={item.id} className="flex items-center gap-3 text-sm">
                   <div className="relative">
-                    <div className="relative h-14 w-14 overflow-hidden rounded-lg bg-background">
+                    <div className="tile relative h-14 w-14 overflow-hidden rounded-lg">
                       <Image src={item.image} alt={item.title} fill sizes="56px" className="object-cover" />
                     </div>
                     <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-foreground px-1 text-[11px] text-background">
@@ -214,14 +255,42 @@ export default function CheckoutPage() {
                 {error}
               </p>
             )}
-            <button type="submit" disabled={busy || !ready || !user} className="btn-primary mt-6 w-full">
-              {status ?? "Place order"}
+            <button type="submit" disabled={busy || !ready || !accountReady} className="btn-primary mt-6 w-full">
+              {status ?? (guest ? "Sign in to place order" : "Place order")}
             </button>
-            <p className="mt-3 text-center text-xs text-muted">Your confirmation shows the final amount to pay on delivery.</p>
+            <p className="mt-3 text-center text-xs text-muted">
+              {guest
+                ? "Your details are kept while you sign in."
+                : "Your confirmation shows the final amount to pay on delivery."}
+            </p>
           </OrderSummary>
         </div>
       </form>
     </div>
+  );
+}
+
+function Step({ n, title, done, children }: { n: number; title: string; done?: boolean; children: React.ReactNode }) {
+  return (
+    <section className="panel p-5 sm:p-6">
+      <h2 className="mb-4 flex items-center gap-3 text-lg font-semibold">
+        <span
+          className={`flex h-7 w-7 items-center justify-center rounded-full text-sm ${
+            done ? "bg-accent text-white" : "bg-surface text-foreground"
+          }`}
+        >
+          {done ? (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden>
+              <path d="m5 12 5 5L20 7" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          ) : (
+            n
+          )}
+        </span>
+        {title}
+      </h2>
+      {children}
+    </section>
   );
 }
 
