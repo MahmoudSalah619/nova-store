@@ -16,6 +16,14 @@ export type Brand = {
   image: string;
 };
 
+export type Subcategory = {
+  _id: string;
+  name: string;
+  slug: string;
+  /** Parent category id. */
+  category: string;
+};
+
 export type Review = {
   _id: string;
   review: string;

@@ -28,6 +28,10 @@ type AccountContextValue = {
   wishlist: Product[];
   wishlistLoading: boolean;
   toggleWishlist: (productId: string) => Promise<void>;
+  /** Reload the wishlist from the API. */
+  refreshWishlist: () => void;
+  /** The raw login token, for sending to our own API routes (e.g. the chat assistant). */
+  token: string | null;
 };
 
 const AccountContext = createContext<AccountContextValue | null>(null);
@@ -95,6 +99,10 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
     [token, signOut],
   );
 
+  // Bumped to reload the wishlist after something else (e.g. the chat assistant) changes it.
+  const [wishlistVersion, setWishlistVersion] = useState(0);
+  const refreshWishlist = useCallback(() => setWishlistVersion((v) => v + 1), []);
+
   // Load the wishlist whenever we have a token.
   useEffect(() => {
     if (!token) return;
@@ -111,7 +119,7 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [token, authed]);
+  }, [token, authed, wishlistVersion]);
 
   const auth = async (path: string, body: object) => {
     const res = await fetch(`${API_BASE}${path}`, {
@@ -168,8 +176,21 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
   );
 
   const value = useMemo(
-    () => ({ user, ready, api: authed as AccountContextValue["api"], signIn, signUp, signOut, wishlistIds, wishlist, wishlistLoading, toggleWishlist }),
-    [user, ready, authed, signIn, signUp, signOut, wishlistIds, wishlist, wishlistLoading, toggleWishlist],
+    () => ({
+      user,
+      ready,
+      token,
+      api: authed as AccountContextValue["api"],
+      signIn,
+      signUp,
+      signOut,
+      wishlistIds,
+      wishlist,
+      wishlistLoading,
+      toggleWishlist,
+      refreshWishlist,
+    }),
+    [user, ready, token, authed, signIn, signUp, signOut, wishlistIds, wishlist, wishlistLoading, toggleWishlist, refreshWishlist],
   );
 
   return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>;

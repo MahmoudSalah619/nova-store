@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AccountProvider } from "@/components/account-provider";
 import { CartProvider } from "@/components/cart-provider";
+import { ChatWidget } from "@/components/chat/chat-widget";
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
 import "./globals.css";
@@ -30,6 +31,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             <Header />
             <main className="flex-1">{children}</main>
             <Footer />
+            <ChatWidget />
           </CartProvider>
         </AccountProvider>
       </body>
