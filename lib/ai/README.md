@@ -40,6 +40,20 @@ ChatWidget (browser)                      components/chat/
 | `tools/account.ts` | Signed-in API: account status, wishlist (read/add/remove), orders, addresses. |
 | `tools/cart.ts` | The browser cart: view, add, change quantity, remove. |
 | `tools/shared.ts` | Helpers: authed API calls, error wrapping, product summaries, status/actions. |
+| `tools/skills.ts` | `load_skill`: returns a skill's full playbook. |
+| `skills/` | The playbooks: `order-management`, `refund-management`, `product-analysis`. |
+
+## Skills
+
+Skills are playbooks for request types that need more than a tool call: which tools to use in what order, how to read the data, what to say, and what not to promise. The system prompt lists only each skill's name and one-line description. When a request matches, the agent calls `load_skill` and gets the full instructions for that reply. That keeps the always-on prompt short while each playbook can be detailed.
+
+| Skill | Used for |
+| --- | --- |
+| `order-management` | "Where is my order?", order history, what was charged. Explains status, payment and items from `get_my_orders`. |
+| `refund-management` | Refunds, returns, damaged or wrong items. Checks the order against the 30-day policy and says plainly that it can't start a refund (the API has no refund endpoint). |
+| `product-analysis` | "Which is better?", "best X under Y". Compares 2–4 products on price, rating (and how many ratings), stock and reviews, then recommends one. |
+
+To add a skill: write `skills/<name>.ts` exporting a `Skill`, then add it to `SKILLS` in `skills/index.ts`. Skills must stay inside the store's scope; the scope guard still refuses anything else (a general code-review skill was left out for that reason).
 
 ## Staying on topic
 

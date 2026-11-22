@@ -97,7 +97,15 @@ export async function POST(req: Request) {
         const context: ChatContext = { ...account, cart };
         const agentStream = await getAgent().stream(
           { messages: withLiveState(messages, context) },
-          { context, streamMode: ["messages", "custom"], signal: req.signal },
+          {
+            context,
+            streamMode: ["messages", "custom"],
+            signal: req.signal,
+            // LangGraph counts every node (model, tools and each middleware hook) and stops at 25 by default.
+            // A comparison can need ~6 model calls, which passes 25 steps. The real caps are the
+            // model/tool call limits in agent.ts; this is only a backstop above them.
+            recursionLimit: 120,
+          },
         );
 
         let wroteText = false;
