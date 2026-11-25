@@ -63,10 +63,13 @@ To add a skill: write `skills/<name>.ts` exporting a `Skill`, then add it to `SK
 
 ## Keeping claims honest
 
-Models sometimes say "Done!" without calling the tool, especially when earlier messages claimed a change. Two things stop that:
+Models sometimes say "Done!" without calling the tool, especially when earlier messages claimed a change. Three things stop that:
 
 - **Live state:** the API route appends a `<page_state>` note with the real cart and sign-in status to the latest user message, so the model doesn't rely on the conversation.
 - **Receipts:** every action the page actually applies shows as a green line under the reply (e.g. "Removed … from cart"). The page writes these, not the model; any "(Applied: …)" text the model writes itself is stripped. Receipts are sent back in later turns so the model can tell real changes from claims.
+- **Claim guard** (`claim-guard.ts`): middleware that checks every final reply. If it says something was added, set, removed or saved but no change tool succeeded since the user's message, names a product no successful tool call changed, or states a count the tool results don't show (e.g. "added 5" when the 10-per-product cap allowed 3), the model is asked again with a correction. The API route holds back each model call's text until the guard approves it, so rejected text never reaches the screen (no flicker), and the user sees the status line ("Thinking…", "Adding to your cart…") meanwhile. If the second answer still claims a change, a fixed "Sorry, I couldn't make that change" reply is shown instead. The same guard asks for an English rewrite when a reply comes back in Arabic, and drops any text the model writes alongside a tool call ("Let me check…").
+- **Loop guard** (`loop-guard.ts`): an identical catalog lookup repeated in one turn isn't run again; the model is told to answer or search differently. A model once repeated the same search until it hit the model-call limit.
+- **Emoji filter:** the API route removes emojis from streamed text, since models copy them from the chat history.
 
 ## What the agent can't do (on purpose)
 

@@ -21,5 +21,9 @@ export type ChatStreamEvent =
   | { type: "error"; message: string }
   | { type: "done" };
 
-/** What a tool writes through `runtime.writer`. */
-export type ToolStreamPayload = { type: "status"; label: string } | { type: "action"; action: ClientAction };
+/** What a tool or middleware writes through `runtime.writer`. */
+export type ToolStreamPayload =
+  | { type: "status"; label: string }
+  | { type: "action"; action: ClientAction }
+  /** From the claim guard, after each model call: show that call's held-back text, or drop it (optionally showing `replacement`). */
+  | { type: "review"; keep: boolean; replacement?: string };

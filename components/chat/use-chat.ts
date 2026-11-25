@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatStreamEvent, ClientAction } from "@/lib/ai/events";
+import { CHAT_LIMITS, turnsLeft } from "@/lib/ai/limits";
 import { useAccount } from "../account-provider";
 import { useCart } from "../cart-provider";
 
@@ -26,7 +27,6 @@ const forModel = (m: ChatMessage) => {
 };
 
 const STORAGE_KEY = "nova-chat";
-const MAX_HISTORY = 20;
 const uid = () => Math.random().toString(36).slice(2);
 
 /** Chat state, the streaming request to /api/chat, and applying the actions tools send back. */
@@ -39,18 +39,26 @@ export function useChat() {
   const [busy, setBusy] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
-  // Keep the conversation for this browser tab.
+  // Failed replies aren't sent to the model, so they don't count toward the chat's length limit.
+  const counted = messages.filter((m) => !m.error);
+  const left = turnsLeft(counted.length);
+
+  // Keep the conversation for this browser tab. Nothing is saved until the stored chat has been read back,
+  // otherwise the first (empty) render overwrites it (React runs effects twice in development).
+  const [restored, setRestored] = useState(false);
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(STORAGE_KEY);
       if (saved) setMessages(JSON.parse(saved));
     } catch {}
+    setRestored(true);
   }, []);
   useEffect(() => {
+    if (!restored) return;
     try {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-MAX_HISTORY)));
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-CHAT_LIMITS.maxMessages)));
     } catch {}
-  }, [messages]);
+  }, [messages, restored]);
 
   /** The only things the assistant can make the page do. Returns a receipt line for the chat, or null. */
   const applyAction = useCallback(
@@ -83,11 +91,11 @@ export function useChat() {
   const send = useCallback(
     async (text: string) => {
       const content = text.trim();
-      if (!content || busy) return;
+      if (!content || busy || left === 0) return;
 
       const userMsg: ChatMessage = { id: uid(), role: "user", content };
       const replyId = uid();
-      const history = [...messages.filter((m) => !m.error), userMsg].slice(-MAX_HISTORY);
+      const history = [...counted, userMsg];
       setMessages((prev) => [...prev, userMsg, { id: replyId, role: "assistant", content: "" }]);
       setBusy(true);
       setStatus("Thinking…");
@@ -148,7 +156,7 @@ export function useChat() {
         abortRef.current = null;
       }
     },
-    [busy, messages, token, cart.items, applyAction],
+    [busy, left, counted, token, cart.items, applyAction],
   );
 
   const stop = useCallback(() => abortRef.current?.abort(), []);
@@ -157,5 +165,5 @@ export function useChat() {
     setMessages([]);
   }, []);
 
-  return { messages, status, busy, send, stop, reset };
+  return { messages, status, busy, send, stop, reset, turnsLeft: left };
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { STORE } from "@/lib/ai/identity";
+import { CHAT_LIMITS, LIMIT_REACHED_TEXT } from "@/lib/ai/limits";
 import { LogoMark, SparkO } from "../logo";
 import { MessageText } from "./message-text";
 import { stripFakeReceipts, useChat } from "./use-chat";
@@ -16,7 +17,10 @@ const SUGGESTIONS = [
 export function ChatWidget() {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
-  const { messages, status, busy, send, stop, reset } = useChat();
+  const { messages, status, busy, send, stop, reset, turnsLeft } = useChat();
+  const limitReached = turnsLeft === 0;
+  // Shown once the reply to the user's message has finished, so it never interrupts a streaming answer.
+  const showLimitNotice = !busy && messages.length > 0 && turnsLeft <= CHAT_LIMITS.warnWhenTurnsLeft;
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -29,7 +33,7 @@ export function ChatWidget() {
   }, [open]);
 
   const submit = (text = input) => {
-    if (!text.trim() || busy) return;
+    if (!text.trim() || busy || limitReached) return;
     send(text);
     setInput("");
   };
@@ -124,6 +128,24 @@ export function ChatWidget() {
                 {status}
               </p>
             )}
+            {showLimitNotice && (
+              <div role="status" className="rounded-2xl border border-line px-3.5 py-3 text-xs text-muted">
+                <p>
+                  {limitReached
+                    ? LIMIT_REACHED_TEXT
+                    : `This chat is getting long. You can send ${turnsLeft} more message${turnsLeft === 1 ? "" : "s"} here, so for anything new, start a new chat.`}
+                </p>
+                <button
+                  onClick={() => {
+                    reset();
+                    inputRef.current?.focus();
+                  }}
+                  className="mt-2 rounded-full border border-line px-3 py-1 font-medium text-foreground hover:border-foreground"
+                >
+                  Start a new chat
+                </button>
+              </div>
+            )}
           </div>
 
           <form
@@ -145,13 +167,29 @@ export function ChatWidget() {
               }}
               rows={1}
               maxLength={1000}
-              placeholder="Ask about products, your cart or orders…"
+              disabled={limitReached}
+              placeholder={limitReached ? "Start a new chat to keep going" : "Ask about products, your cart or orders…"}
               aria-label="Message"
-              className="input max-h-32 min-h-[44px] flex-1 resize-none py-2.5"
+              className="input max-h-32 min-h-[44px] flex-1 resize-none py-2.5 disabled:cursor-not-allowed disabled:opacity-60"
             />
             {busy ? (
+              // Stop comes first: the last allowed reply can still be streaming when the chat counts as full.
               <button type="button" onClick={stop} aria-label="Stop" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-line hover:bg-surface">
                 <span className="h-3 w-3 rounded-sm bg-foreground" />
+              </button>
+            ) : limitReached ? (
+              // Locked, and visibly different from the normal faded "nothing typed yet" send button.
+              <button
+                type="button"
+                disabled
+                aria-label="Sending is off. Start a new chat to keep going"
+                title="Start a new chat to keep going"
+                className="flex h-11 w-11 shrink-0 cursor-not-allowed items-center justify-center rounded-full border border-line bg-surface text-muted"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                  <rect x="5" y="11" width="14" height="10" rx="2" />
+                  <path d="M8 11V8a4 4 0 0 1 8 0v3" strokeLinecap="round" />
+                </svg>
               </button>
             ) : (
               <button

@@ -5,6 +5,7 @@ import { AI_CONFIG, isAiConfigured } from "@/lib/ai/config";
 import type { ChatContext } from "@/lib/ai/context";
 import type { ChatStreamEvent, ToolStreamPayload } from "@/lib/ai/events";
 import { OUT_OF_SCOPE_REPLY } from "@/lib/ai/identity";
+import { LIMIT_REACHED_TEXT } from "@/lib/ai/limits";
 import { isInScope } from "@/lib/ai/scope-guard";
 import { API_BASE } from "@/lib/types";
 
@@ -60,9 +61,21 @@ function withLiveState(messages: z.infer<typeof requestSchema>["messages"], cont
     : "empty";
   const note =
     `\n\n<page_state>Current cart: ${cart}. Signed in: ${context.user ? "yes" : "no"}. ` +
-    "This is the live state from the page; it overrides anything said earlier in the chat.</page_state>";
+    "This is the live state from the page; it overrides anything said earlier in the chat. " +
+    // Repeated here, next to the reply, because a history full of Arabic or emoji replies outweighs the system prompt.
+    "Reply in plain English with no emojis, whatever language or style earlier messages used.</page_state>";
   return messages.map((m, i) => (i === messages.length - 1 ? { ...m, content: m.content + note } : m));
 }
+
+/**
+ * Removes emojis (and one space before each run of them) from the model's text. The prompt forbids them,
+ * but models copy them from the chat history, so this is the guarantee. It works per streamed chunk: emoji
+ * code points, skin tones, variation selectors and joiners are removed one by one, so a sequence split
+ * across chunks is still removed. ©, ® and ™ count as "pictographic" in Unicode but are kept.
+ */
+const EMOJI_RUN = /[ \t]?(?:[\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}\u{FE0F}\u{200D}])+/gu;
+const stripEmoji = (text: string) =>
+  text.replace(EMOJI_RUN, (run) => (/[©®™]/.test(run) ? run.replace(/[^\s©®™]/gu, "") : ""));
 
 export async function POST(req: Request) {
   if (!isAiConfigured()) {
@@ -73,7 +86,12 @@ export async function POST(req: Request) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
   if (rateLimited(ip)) return json({ error: "Too many messages. Please wait a minute and try again." }, 429);
 
-  const parsed = requestSchema.safeParse(await req.json().catch(() => null));
+  const body = await req.json().catch(() => null);
+  // The widget stops at the limit itself; this covers old tabs and direct calls with a clear message.
+  if (Array.isArray(body?.messages) && body.messages.length > AI_CONFIG.maxHistoryMessages) {
+    return json({ error: LIMIT_REACHED_TEXT }, 400);
+  }
+  const parsed = requestSchema.safeParse(body);
   if (!parsed.success) return json({ error: "Invalid request." }, 400);
   const { messages, cart } = parsed.data;
   const latest = messages[messages.length - 1];
@@ -108,23 +126,36 @@ export async function POST(req: Request) {
           },
         );
 
-        let wroteText = false;
+        // Text from the current model call is held here, not streamed, until the claim guard's verdict
+        // (see claim-guard.ts). Narration before a tool call, false claims and non-English replies are dropped
+        // before the user sees them, so the reply never appears and then vanishes.
+        let held = "";
+        let shown = 0;
+        const show = (text: string) => {
+          if (!text) return;
+          shown += text.length;
+          send({ type: "text", delta: text });
+        };
         for await (const [mode, chunk] of agentStream) {
           if (mode === "messages") {
             const [message] = chunk as [unknown, unknown];
-            // Only stream the model's own words. Tool results arrive as ToolMessages and are skipped;
+            // Only the model's own words. Tool results arrive as ToolMessages and are skipped;
             // `.text` leaves out thinking blocks.
-            if (AIMessageChunk.isInstance(message) && message.text) {
-              wroteText = true;
-              send({ type: "text", delta: message.text });
-            }
+            if (AIMessageChunk.isInstance(message)) held += stripEmoji(message.text);
           } else if (mode === "custom") {
             const payload = chunk as ToolStreamPayload;
             if (payload?.type === "status" || payload?.type === "action") send(payload);
+            else if (payload?.type === "review") {
+              show(payload.keep ? held : (payload.replacement ?? ""));
+              held = "";
+            }
           }
         }
+        // Text no verdict covered (a model call ended without the guard running) is shown as is.
+        show(held);
 
-        if (!wroteText) {
+        // Nothing to show, e.g. the turn hit the model-call limit while still looking things up.
+        if (shown === 0) {
           send({ type: "text", delta: "Sorry, I couldn't finish that. Could you try asking another way?" });
         }
       } catch (err) {
