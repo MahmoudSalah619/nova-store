@@ -11,7 +11,8 @@ import type { ToolStreamPayload } from "./events";
  * - A final reply in Arabic script breaks the English-only rule (history full of Arabic replies pulls models back).
  * - Text written alongside a tool call (narration, or a claim before the tool has run) is never kept.
  *
- * On a false claim or wrong language, the browser drops the streamed text and the model is asked once more
+ * The API route holds each model call's text until this guard's verdict, so rejected text is never shown.
+ * On a false claim or wrong language, the text is dropped and the model is asked once more
  * with a correction. If the second answer still claims a false change, a fixed honest reply replaces it.
  */
 
@@ -211,22 +212,28 @@ export const claimGuardMiddleware = () =>
   createMiddleware({
     name: "claimGuard",
     wrapModelCall: async (request, handler) => {
-      const retract = (text?: string) => request.runtime.writer?.({ type: "retract", text } satisfies ToolStreamPayload);
+      // The API route holds each model call's text until it hears the verdict here, so rejected text is never
+      // shown: "keep" releases it, "drop" discards it (and can send a fixed replacement instead).
+      const verdict = (keep: boolean, replacement?: string) =>
+        request.runtime.writer?.({ type: "review", keep, replacement } satisfies ToolStreamPayload);
       const first = await handler(request);
       if (!AIMessage.isInstance(first)) return first;
 
       // Text written alongside a tool call is either narration ("Let me check…") or a claim made before the
-      // tool has run ("Done, added it!"), which may still fail. Neither belongs in the answer: take it back.
+      // tool has run ("Done, added it!"), which may still fail. Neither belongs in the answer: drop it.
       // The reply after the tool results says what really happened.
       if (first.tool_calls?.length) {
-        if (first.text.trim()) retract();
+        verdict(false);
         return first;
       }
       const falseClaim = isFalseFinalReply(first, request.messages);
       const notEnglish = isNotEnglish(first.text);
-      if (!falseClaim && !notEnglish) return first;
+      if (!falseClaim && !notEnglish) {
+        verdict(true);
+        return first;
+      }
 
-      retract();
+      verdict(false);
       console.warn(`[chat] reply rejected (${[falseClaim && "false claim", notEnglish && "not English"].filter(Boolean).join(", ")}); asking the model again`);
 
       const corrections = [falseClaim && CORRECTION, notEnglish && LANGUAGE_CORRECTION].filter(Boolean).join("\n\n");
@@ -234,11 +241,20 @@ export const claimGuardMiddleware = () =>
         ...request,
         messages: [...request.messages, first, new HumanMessage(corrections)],
       });
+      if (!AIMessage.isInstance(second)) return second;
+      // The retry called a tool to make the change for real: same rule as above, its text is dropped.
+      if (second.tool_calls?.length) {
+        verdict(false);
+        return second;
+      }
       // A second reply still in Arabic is let through: an answer in the wrong language beats no answer.
-      if (!AIMessage.isInstance(second) || !isFalseFinalReply(second, request.messages)) return second;
+      if (!isFalseFinalReply(second, request.messages)) {
+        verdict(true);
+        return second;
+      }
 
-      // This reply doesn't come from a model call, so it isn't streamed: the route sends it with the retract.
-      retract(HONEST_FALLBACK);
+      // This reply doesn't come from a model call, so the route sends it as the replacement.
+      verdict(false, HONEST_FALLBACK);
       console.warn("[chat] reply still claimed a change; sending the fixed reply");
       return new AIMessage({ content: HONEST_FALLBACK, id: second.id });
     },

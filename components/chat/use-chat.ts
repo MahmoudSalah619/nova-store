@@ -143,7 +143,6 @@ export function useChat() {
               const receipt = applyAction(event.action);
               if (receipt) update((m) => ({ receipts: [...(m.receipts ?? []), receipt] }));
             }
-            else if (event.type === "retract") update((m) => ({ content: m.content.slice(0, Math.max(0, m.content.length - event.chars)) }));
             else if (event.type === "denied") update({ content: event.text, denied: true });
             else if (event.type === "error") update({ content: event.message, error: true });
           }

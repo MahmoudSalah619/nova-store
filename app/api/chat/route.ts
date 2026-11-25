@@ -126,43 +126,36 @@ export async function POST(req: Request) {
           },
         );
 
-        // Characters the user can currently see: streamed text minus anything the claim guard took back.
-        let visibleChars = 0;
-        // Characters streamed by the current model call, so the claim guard can take back just that reply.
-        let callId: string | undefined;
-        let callChars = 0;
+        // Text from the current model call is held here, not streamed, until the claim guard's verdict
+        // (see claim-guard.ts). Narration before a tool call, false claims and non-English replies are dropped
+        // before the user sees them, so the reply never appears and then vanishes.
+        let held = "";
+        let shown = 0;
+        const show = (text: string) => {
+          if (!text) return;
+          shown += text.length;
+          send({ type: "text", delta: text });
+        };
         for await (const [mode, chunk] of agentStream) {
           if (mode === "messages") {
             const [message] = chunk as [unknown, unknown];
-            // Only stream the model's own words. Tool results arrive as ToolMessages and are skipped;
+            // Only the model's own words. Tool results arrive as ToolMessages and are skipped;
             // `.text` leaves out thinking blocks.
-            const text = AIMessageChunk.isInstance(message) ? stripEmoji(message.text) : "";
-            if (AIMessageChunk.isInstance(message) && text) {
-              if (message.id !== callId) {
-                callId = message.id;
-                callChars = 0;
-              }
-              visibleChars += text.length;
-              callChars += text.length;
-              send({ type: "text", delta: text });
-            }
+            if (AIMessageChunk.isInstance(message)) held += stripEmoji(message.text);
           } else if (mode === "custom") {
             const payload = chunk as ToolStreamPayload;
             if (payload?.type === "status" || payload?.type === "action") send(payload);
-            else if (payload?.type === "retract") {
-              if (callChars) send({ type: "retract", chars: callChars });
-              visibleChars -= callChars;
-              callChars = 0;
-              if (payload.text) {
-                visibleChars += payload.text.length;
-                send({ type: "text", delta: payload.text });
-              }
+            else if (payload?.type === "review") {
+              show(payload.keep ? held : (payload.replacement ?? ""));
+              held = "";
             }
           }
         }
+        // Text no verdict covered (a model call ended without the guard running) is shown as is.
+        show(held);
 
-        // Nothing left to show, e.g. the turn hit the model-call limit while still looking things up.
-        if (visibleChars <= 0) {
+        // Nothing to show, e.g. the turn hit the model-call limit while still looking things up.
+        if (shown === 0) {
           send({ type: "text", delta: "Sorry, I couldn't finish that. Could you try asking another way?" });
         }
       } catch (err) {
