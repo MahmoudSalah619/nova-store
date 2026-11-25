@@ -18,8 +18,14 @@ export type ChatStreamEvent =
   | { type: "status"; label: string }
   | { type: "action"; action: ClientAction }
   | { type: "denied"; text: string }
+  /** Drop the last `chars` characters of the reply (a false claim the claim guard caught), then keep streaming. */
+  | { type: "retract"; chars: number }
   | { type: "error"; message: string }
   | { type: "done" };
 
-/** What a tool writes through `runtime.writer`. */
-export type ToolStreamPayload = { type: "status"; label: string } | { type: "action"; action: ClientAction };
+/** What a tool or middleware writes through `runtime.writer`. */
+export type ToolStreamPayload =
+  | { type: "status"; label: string }
+  | { type: "action"; action: ClientAction }
+  /** From the claim guard: discard the reply streamed by the last model call, optionally replacing it with `text`. */
+  | { type: "retract"; text?: string };
