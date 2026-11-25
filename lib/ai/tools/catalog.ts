@@ -11,6 +11,26 @@ import { productSummary, result, safely, status, type Runtime } from "./shared";
 
 const norm = (s: string) => s.toLowerCase().trim();
 
+/**
+ * Product-type words that mean the same thing. Titles are often model names ("Court Tennis Track Pants"),
+ * so a user asking for "trousers" must also match "pants". Each group is checked as "any of these words".
+ */
+const SYNONYM_GROUPS = [
+  ["trousers", "trouser", "pants", "jeans", "chinos", "joggers", "sweatpants", "bantalon"],
+  ["shoes", "shoe", "sneakers", "sneaker", "trainers", "boots", "footwear", "gazma"],
+  ["t-shirt", "tshirt", "t shirt", "tee", "tees"],
+  ["shirt", "shirts", "polo"],
+  ["bag", "bags", "backpack", "handbag", "shanta"],
+  ["laptop", "laptops", "notebook"],
+  ["phone", "phones", "mobile", "smartphone"],
+  ["headphones", "headphone", "earphones", "earbuds", "headset"],
+  ["camera", "cameras"],
+  ["jacket", "jackets", "coat", "hoodie", "sweatshirt"],
+  ["dress", "dresses"],
+];
+/** The words that count as a match for one search word. */
+const alternatives = (word: string) => SYNONYM_GROUPS.find((g) => g.includes(word)) ?? [word];
+
 export const searchProducts = tool(
   ({ query, category, brand, minPrice, maxPrice, onSale, inStockOnly, sort, limit }, runtime: Runtime) =>
     safely(async () => {
@@ -22,7 +42,7 @@ export const searchProducts = tool(
         );
         const price = salePrice(p);
         return (
-          words.every((w) => haystack.includes(w)) &&
+          words.every((w) => alternatives(w).some((alt) => haystack.includes(alt))) &&
           (!category || norm(p.category.name).includes(norm(category))) &&
           (!brand || norm(p.brand?.name ?? "") === norm(brand)) &&
           (minPrice === undefined || price >= minPrice) &&
@@ -39,7 +59,8 @@ export const searchProducts = tool(
         rating: (a: (typeof matches)[0], b: (typeof matches)[0]) => b.ratingsAverage - a.ratingsAverage,
       }[sort];
       // Relevance: products whose title contains the search words come first, then best sellers.
-      const titleHits = (p: (typeof matches)[0]) => words.filter((w) => norm(p.title).includes(w)).length;
+      const titleHits = (p: (typeof matches)[0]) =>
+        words.filter((w) => alternatives(w).some((alt) => norm(p.title).includes(alt))).length;
       const sorted =
         sort === "relevance"
           ? [...matches].sort((a, b) => titleHits(b) - titleHits(a) || b.sold - a.sold)
@@ -51,7 +72,9 @@ export const searchProducts = tool(
     description:
       "Search the store's products. All filters are optional and combine with AND. " +
       "query matches words in the title, brand, category and description. Returns summaries with id, url, price, stock and rating. " +
-      "Titles don't always name the product type, so if a query finds nothing, retry with just brand or category.",
+      "To find a type of product (trousers, shoes, laptops), always pass the type as query in English: common synonyms " +
+      "match automatically (trousers also finds pants and jeans). Browsing a whole category only shows the first results, " +
+      "so don't use it to look for a type. If a query finds nothing, retry with just brand or category.",
     schema: z.object({
       query: z.string().optional().describe("Words to look for, e.g. 'laptop', 'red shoes'"),
       category: z.string().optional().describe("Category name, e.g. Electronics, Men's Fashion, Women's Fashion"),

@@ -1,3 +1,5 @@
+import { CHAT_LIMITS } from "./limits";
+
 /** Tunables for the shopping assistant. Everything the agent is allowed to cost or do in one turn lives here. */
 export const AI_CONFIG = {
   /** Any OpenRouter model id (https://openrouter.ai/models). Override with CHAT_MODEL. It must support tool calling. */
@@ -21,7 +23,8 @@ export const AI_CONFIG = {
 
   /** Request limits, checked in the API route before any model call. */
   maxMessageChars: 1000,
-  maxHistoryMessages: 20,
+  /** Set in limits.ts, which the chat widget also reads to warn before the limit. */
+  maxHistoryMessages: CHAT_LIMITS.maxMessages,
   rateLimit: { requests: 15, windowMs: 60_000 },
 
   /** Run the scope check before the agent. Set CHAT_SCOPE_GUARD=off to rely on the system prompt alone. */

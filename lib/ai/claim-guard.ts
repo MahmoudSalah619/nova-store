@@ -2,14 +2,17 @@ import { AIMessage, createMiddleware, HumanMessage, ToolMessage, type BaseMessag
 import type { ToolStreamPayload } from "./events";
 
 /**
- * Stops the model from saying it changed the cart or wishlist when no tool did it this turn.
+ * Checks the model's replies before they stand. It's named for its main job, false change claims:
  *
- * Prompt rules alone weren't enough: with a few earlier "Done, added it!" replies in the history, models
- * copy the pattern and skip the tool call. This middleware checks every final reply (one with no tool
- * calls). If it claims a change and no change tool succeeded since the user's message, or it claims a
- * change to a product that no successful tool call touched, the model is
- * asked again with a correction. If the second answer still claims a change, a fixed honest reply
- * replaces it. Either way the browser is told to drop the text it already streamed for that reply.
+ * - A final reply (no tool calls) that claims a cart or wishlist change no tool made, names a product no
+ *   successful tool call changed, or states a count the tools didn't produce is a false claim. Prompt rules
+ *   alone weren't enough: with a few earlier "Done, added it!" replies in the history, models copy the
+ *   pattern and skip the tool call.
+ * - A final reply in Arabic script breaks the English-only rule (history full of Arabic replies pulls models back).
+ * - Text written alongside a tool call (narration, or a claim before the tool has run) is never kept.
+ *
+ * On a false claim or wrong language, the browser drops the streamed text and the model is asked once more
+ * with a correction. If the second answer still claims a false change, a fixed honest reply replaces it.
  */
 
 /** Tools that change the cart or wishlist. Add any new tool that does (open_page only navigates, so it isn't here). */
@@ -190,6 +193,17 @@ const CORRECTION =
   "results confirm (if fewer were added than asked, say so and why), and say plainly what the current state is. " +
   "Don't mention this check.";
 
+/**
+ * Replies must be in English (see the prompt's Language section), but a chat history full of Arabic replies
+ * pulls some models back into Arabic. Store data is in English, so Arabic letters in a reply mean the model
+ * switched language.
+ */
+export const isNotEnglish = (text: string) => (text.match(/[؀-ۿ]/g)?.length ?? 0) >= 3;
+
+const LANGUAGE_CORRECTION =
+  "[Automatic check, not from the user] Your last reply wasn't in English. Write the same reply again in plain " +
+  "English, keeping the same facts and links, with no emojis and no \"(Applied: …)\" line. Don't mention this check.";
+
 export const HONEST_FALLBACK =
   "Sorry, I couldn't make that change. Please try again, or update it yourself on [your cart](/cart).";
 
@@ -201,21 +215,26 @@ export const claimGuardMiddleware = () =>
       const first = await handler(request);
       if (!AIMessage.isInstance(first)) return first;
 
-      // Text written before a tool call ("Done, added it!") is shown before the tool has run, and the tool
-      // may still fail. Take it back; the reply after the tool results will say what really happened.
+      // Text written alongside a tool call is either narration ("Let me check…") or a claim made before the
+      // tool has run ("Done, added it!"), which may still fail. Neither belongs in the answer: take it back.
+      // The reply after the tool results says what really happened.
       if (first.tool_calls?.length) {
-        if (claimsChange(first.text)) retract();
+        if (first.text.trim()) retract();
         return first;
       }
-      if (!isFalseFinalReply(first, request.messages)) return first;
+      const falseClaim = isFalseFinalReply(first, request.messages);
+      const notEnglish = isNotEnglish(first.text);
+      if (!falseClaim && !notEnglish) return first;
 
       retract();
-      console.warn("[chat] reply claimed a change no tool made; asking the model again");
+      console.warn(`[chat] reply rejected (${[falseClaim && "false claim", notEnglish && "not English"].filter(Boolean).join(", ")}); asking the model again`);
 
+      const corrections = [falseClaim && CORRECTION, notEnglish && LANGUAGE_CORRECTION].filter(Boolean).join("\n\n");
       const second = await handler({
         ...request,
-        messages: [...request.messages, first, new HumanMessage(CORRECTION)],
+        messages: [...request.messages, first, new HumanMessage(corrections)],
       });
+      // A second reply still in Arabic is let through: an answer in the wrong language beats no answer.
       if (!AIMessage.isInstance(second) || !isFalseFinalReply(second, request.messages)) return second;
 
       // This reply doesn't come from a model call, so it isn't streamed: the route sends it with the retract.
