@@ -4,7 +4,7 @@ This course teaches graph databases, Cypher and Memgraph by building one real fe
 
 Every example uses the store's real data from the Route e-commerce API, so what you learn here is exactly what ships.
 
-> **How to use this course.** Read a lesson, run its queries in Memgraph Lab (http://localhost:3000), then do the exercises. Answers are hidden in collapsible blocks: try first, then check. Lessons 1–7 need only Memgraph Lab. Lessons 8–11 write code in this repo.
+> **How to use this course.** Read a lesson, run its queries in Memgraph Lab (http://localhost:3010), then do the exercises. Answers are hidden in collapsible blocks: try first, then check. Lessons 1–7 need only Memgraph Lab. Lessons 8–11 write code in this repo.
 
 ---
 
@@ -29,6 +29,7 @@ Every example uses the store's real data from the Route e-commerce API, so what 
 | A | [Cypher cheat sheet](#appendix-a--cypher-cheat-sheet) | Quick reference |
 | B | [Troubleshooting](#appendix-b--troubleshooting) | Fix common errors |
 | C | [Glossary](#appendix-c--glossary) | Look up terms |
+| D | [Running Memgraph with Docker](#appendix-d--running-memgraph-with-docker) | Run, configure, back up and upgrade the database |
 
 ---
 
@@ -63,7 +64,7 @@ The graph also stores *snapshots* of price, rating, stock and sold, so it can fi
 ### Progress
 
 - [x] Next.js store, LangChain agent, 21 tools, 3 skills
-- [x] Memgraph running in Docker (`memgraph/memgraph-platform`), Lab on port 3000, Bolt on 7687
+- [x] Memgraph running in Docker. It was first set up with the discontinued `memgraph/memgraph-platform` image (Memgraph 2.14.1, from February 2024) and moved to Docker Compose with Memgraph 3.14 and Lab on port 3010 ([Appendix D](#appendix-d--running-memgraph-with-docker))
 - [x] Inspected the real API responses (findings in [Lesson 6](#lesson-6--designing-the-nova-schema))
 - [x] Split `lib/api.ts` so a plain Node script can reuse it: `lib/store-api.ts` ([Lesson 9](#lesson-9--the-ingestion-script))
 - [x] Write `scripts/sync-graph.ts` and load the graph with `npm run graph:sync`
@@ -194,27 +195,25 @@ In the drawing `(a:Product)-[:IN_SUBCATEGORY]->(s:Subcategory)-[:UNDER]->(c:Cate
 
 ## Lesson 3 — Memgraph Lab tour
 
-### Check that Memgraph is running
+### Start Memgraph
+
+Memgraph and Lab run from [`docker-compose.yml`](../../docker-compose.yml) in the repo root. [Appendix D](#appendix-d--running-memgraph-with-docker) explains every line.
 
 ```powershell
-docker ps --filter name=memgraph
+npm run graph:up
 ```
 
-If it's listed as `Exited`, start it again. This keeps your data. Don't use `docker run`, which would create a second container.
+It waits until the database passes its health check. Then see what's running:
 
 ```powershell
-docker start memgraph
+docker compose ps
 ```
 
-Check the Bolt port is reachable:
-
-```powershell
-Test-NetConnection localhost -Port 7687
-```
+You should see `nova-memgraph` as `healthy` and `nova-memgraph-lab` as `running`. Because they're set to `restart: unless-stopped`, they also come back by themselves after a reboot.
 
 ### Using Lab
 
-1. Open http://localhost:3000 and connect. The defaults are host `localhost`, port `7687`, no username or password.
+1. Open http://localhost:3010. Lab is on 3010 so `next dev` can keep port 3000. It's pre-configured to connect to the database, so just click **Connect**.
 2. Go to **Query execution**.
 3. Type a query and press **Run** (or `Ctrl+Enter`).
 4. Switch the result between **Graph** (nodes and arrows) and **Data** (a table).
@@ -341,7 +340,7 @@ WHERE NOT exists((c)<-[:BELONGS_TO]-(:Product))
 RETURN c.name;
 ```
 
-> **Memgraph limit:** `exists(pattern)` works only in `WHERE`. In `RETURN` or `WITH` you get *"Exists cannot be used within RETURN!"*. To return "does this pattern exist?" as a column, use `OPTIONAL MATCH` and test for `null`. Lesson 4.5 explains `OPTIONAL MATCH`, and exercise 4.6 uses this technique.
+> **Version note:** on Memgraph 3.x, which this project uses, `exists(pattern)` works anywhere, for example `RETURN exists((p)-[:MADE_BY]->()) AS hasBrand`. Memgraph 2.x allowed it only in `WHERE` and failed with *"Exists cannot be used within RETURN!"*. The portable way, which works on every version, is `OPTIONAL MATCH` plus a `null` test. Lesson 4.5 explains `OPTIONAL MATCH`, and exercise 4.6 uses it.
 
 ### 4.3 Sorting and paging
 
@@ -823,10 +822,10 @@ EXPLAIN MATCH (p:Product {id: "6428ebc6dc1175abc65ca0b9"}) RETURN p;
 |---|---|
 | `ScanAll` | Reads every node in the database. Bad on a big graph. |
 | `ScanAllByLabel` | Reads every node with that label. OK for small labels. |
-| `ScanAllByLabelPropertyValue` | Uses the index to jump to exact matches. What you want for id lookups. |
+| `ScanAllByLabelProperties` | Uses the index to jump to exact matches. What you want for id lookups. Memgraph 2.x called it `ScanAllByLabelPropertyValue`. |
 | `Expand` | Follows relationships from the current node(s) |
 
-This is the real output from this Memgraph instance. Plans read **bottom-up**.
+This is the real output from this Memgraph instance (3.14). Plans read **bottom-up**.
 
 Without an index:
 
@@ -841,7 +840,7 @@ With `CREATE INDEX ON :Product(id)`:
 
 ```
  * Produce {p}
- * ScanAllByLabelPropertyValue (p :Product {id})
+ * ScanAllByLabelProperties (p :Product {id})
  * Once
 ```
 
@@ -1301,7 +1300,13 @@ RETURN p.title;
 MATCH ()-[r]->() RETURN type(r), count(*);
 ```
 
-Memgraph doesn't support Neo4j's `count { pattern }` subquery syntax, so use `exists()` in `WHERE`, or `MATCH` and `count()`.
+On Memgraph 3.x you can also count a pattern directly per product. Memgraph 2.x didn't support this `count { }` syntax.
+
+```cypher
+MATCH (p:Product)
+RETURN count { (p)-[:BELONGS_TO]->() } AS categories, count(*) AS products
+ORDER BY categories;
+```
 
 ```cypher
 // Look at the whole graph
@@ -1655,7 +1660,7 @@ What we're building is **"graph queries as tools"**: the agent chooses a fixed t
 1. **Hybrid: vector to find the start, graph to expand.** Embed product titles and descriptions. A fuzzy question ("warm accessories") finds the starting products by similarity, then the graph expands to their subcategory, brand and siblings. Recent Memgraph versions include vector indexes, so both can live in one database.
 2. **Similarity edges.** Precompute `(:Product)-[:SIMILAR_TO {score}]->(:Product)` from embeddings during sync. Then "similar" becomes a single hop.
 3. **Text2Cypher.** The model writes Cypher from the schema. It's flexible, but it can produce wrong or expensive queries, so it needs a read-only connection, a timeout, a row limit and validation. Only consider it if the fixed tools keep missing real questions.
-4. **Graph algorithms.** The `memgraph-platform` image includes the **MAGE** algorithm library, for example `CALL pagerank.get()`. You could rank "central" products or detect communities once customer–product edges exist.
+4. **Graph algorithms.** The `memgraph/memgraph-mage` image includes the **MAGE** algorithm library, for example `CALL pagerank.get()`. On today's catalog, community detection already finds the three departments by itself ([Appendix D](#appendix-d--running-memgraph-with-docker)). It becomes more useful once customer–product edges exist.
 
 ---
 
@@ -1673,7 +1678,7 @@ Set `MEMGRAPH_URI`, `MEMGRAPH_USER` and `MEMGRAPH_PASSWORD` as Vercel environmen
 
 ### Persistence
 
-Memgraph keeps data in memory and writes snapshots and a write-ahead log to disk **inside the container**. `docker stop` / `docker start` keeps your data. `docker rm` deletes it, unless you mounted a volume, for example `-v mg_lib:/var/lib/memgraph`. Since `npm run graph:sync` rebuilds the graph from the API, losing it locally just means running the sync again.
+Memgraph keeps data in memory and writes snapshots and a write-ahead log to `/var/lib/memgraph`. In `docker-compose.yml` that folder is the named volume `mg_lib`, so the data survives restarts, `docker compose down` and image upgrades. Only `docker compose down -v` deletes it. Since `npm run graph:sync` rebuilds the graph from the API, losing it locally just means running the sync again.
 
 ### Keeping the graph fresh
 
@@ -1704,7 +1709,7 @@ Prices and stock in the graph are only as fresh as the last sync. That's why too
 
 - LangSmith already traces tool calls. Graph tool latency shows up there.
 - `SHOW STORAGE INFO;` for memory use
-- `docker logs memgraph` for server errors
+- `docker compose logs memgraph` for server errors
 
 ---
 
@@ -1719,7 +1724,9 @@ OPTIONAL MATCH (c)<-[:BELONGS_TO]-(p)            // keep rows with no match
 WITH b, count(p) AS n WHERE n > 2                // pipe + HAVING
 RETURN DISTINCT x ORDER BY x.sold DESC SKIP 10 LIMIT 5
 RETURN {id: p.id, title: p.title} AS item        // map result
-WHERE exists((p)-[:MADE_BY]->(:Brand))           // pattern test: WHERE only, in Memgraph
+WHERE exists((p)-[:MADE_BY]->(:Brand))           // pattern test (also in RETURN/WITH on 3.x)
+RETURN count { (p)-[:MADE_BY]->() }               // count a pattern (3.x)
+RETURN [x IN list WHERE x > 2]                    // list comprehension (3.x)
 
 // ── Aggregates ────────────────────────────────────────
 count(x)  count(DISTINCT x)  sum  avg  min  max  collect(x)  collect(x)[0..3]
@@ -1754,13 +1761,14 @@ labels(n) type(r) id(n) keys(n) properties(n)  round(x)  timestamp()
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `ServiceUnavailable` / `ECONNREFUSED` | The container is stopped | `docker start memgraph` |
-| Lab won't load at :3000 | Same, or port 3000 is used by `next dev` | Next.js also defaults to 3000. Run the app with `npm run dev -- -p 3001`, or open Lab on its own port. |
+| `ServiceUnavailable` / `ECONNREFUSED`, or tools return `graph_unavailable` | Memgraph isn't running | `npm run graph:up` |
+| Lab won't load | Wrong port, or the Lab container is stopped | Lab is at http://localhost:3010, not 3000. Check `docker compose ps`. |
+| `port is already allocated` on `graph:up` | Something else, such as the old `memgraph` container, holds 7687 | `docker ps` to find it, then stop it |
+| `nova-memgraph` stuck at `unhealthy` | Memgraph failed to start, often a bad flag in `command:` | `docker compose logs memgraph` |
 | `count` shows `Integer { low, high }` | Driver's lossless integers | `disableLosslessIntegers: true` or `.toNumber()` |
 | `LIMIT` / `SKIP` error about type | A JS number was sent as a float | `neo4j.int(n)` |
 | *"Index manipulation not allowed in multicommand transactions"* | Memgraph needs schema changes in auto-commit | Use `session.run()`, not `executeWrite` |
-| *"Exists cannot be used within RETURN/WITH"* | `exists()` only works in `WHERE` in Memgraph | `OPTIONAL MATCH` the pattern and test `x IS NOT NULL` |
-| *"no viable alternative at input 'count{('"* | Neo4j-only `count { }` subquery | `exists()` in `WHERE`, or `MATCH` + `count()` |
+| *"Exists cannot be used within RETURN/WITH"*, *"no viable alternative at input 'count{('"*, *"Not yet implemented: atom expression"* | You're on Memgraph 2.x, which lacks these features | Upgrade (Appendix D), or use `OPTIONAL MATCH` + `IS NOT NULL` and `MATCH` + `count()` |
 | *"unique constraint violation"* | A `CREATE` or whole-pattern `MERGE` tried to duplicate an id | Lesson 5.5 |
 | Duplicate nodes | `CREATE` instead of `MERGE`, or extra properties inside `MERGE {}`, or the whole-pattern trap | Lesson 5.3–5.5. Add a uniqueness constraint so duplicates fail loudly. |
 | A product lost its brand edge after a sync | Brand id not in `/brands` | Check `MATCH (p:Product) WHERE NOT exists((p)-[:MADE_BY]->()) RETURN p` |
@@ -1770,15 +1778,15 @@ labels(n) type(r) id(n) keys(n) properties(n)  round(x)  timestamp()
 Useful PowerShell commands:
 
 ```powershell
-docker ps -a --filter name=memgraph
+docker compose ps
 ```
 
 ```powershell
-docker logs --tail 50 memgraph
+docker compose logs --tail 50 memgraph
 ```
 
 ```powershell
-docker restart memgraph
+docker compose restart memgraph
 ```
 
 ---
@@ -1801,3 +1809,158 @@ docker restart memgraph
 | **MAGE** | Memgraph's library of graph algorithms (PageRank, community detection…) |
 | **GraphRAG** | Retrieval that uses graph structure to gather context for an LLM |
 | **Text2Cypher** | An LLM generating Cypher queries from natural language |
+
+---
+
+## Appendix D — Running Memgraph with Docker
+
+### Why Docker Compose, and what it replaced
+
+This project first ran Memgraph with one `docker run` command and the all-in-one `memgraph/memgraph-platform` image. When we inspected that container (28 November 2026), we found:
+
+| Problem | Effect |
+|---|---|
+| The image was last published in **February 2024** (Memgraph 2.14.1). The current release is **3.14**, shipped as separate images. | Missing 2.5 years of features. Several "Memgraph limits" in earlier drafts of this course were really 2.14 limits (see the version notes in Lessons 4 and 9). |
+| **No volume** | The data lived inside the container, so `docker rm` would delete it |
+| **Restart policy `no`** | After a reboot, Memgraph stayed off |
+| **Lab on port 3000** | Clashed with `next dev` |
+| **6.6 GB image** | Database, Lab and algorithms all in one image |
+
+`docker-compose.yml` fixes all of these, and lives in git so the setup is reproducible: anyone who clones the repo gets the same database with one command.
+
+### The file, line by line
+
+| Setting | What it does |
+|---|---|
+| `image: memgraph/memgraph-mage:3.14.0` | Memgraph plus **MAGE**, the graph-algorithm library. Pinned to an exact version so an upgrade is a deliberate choice, not a surprise. |
+| `container_name: nova-memgraph` | A fixed name for `docker exec nova-memgraph …` |
+| `ports: 7687` | Bolt: the driver, sync script and Lab connect here |
+| `ports: 7444` | Log stream that Lab shows |
+| `command: --query-execution-timeout-sec=10` | Kills any query running longer than 10 s. The default is 600 s. |
+| `command: --memory-limit=2048` | Memgraph is in-memory, so cap it at 2 GB instead of 90% of your RAM |
+| `command: --telemetry-enabled=false` | Don't send usage stats to Memgraph |
+| `command: --storage-snapshot-*`, `--storage-wal-enabled` | Persistence: a full snapshot every 5 min and on shutdown, plus a write-ahead log of every change |
+| `volumes: mg_lib:/var/lib/memgraph` | Data, snapshots and WAL live in a **named volume**, outside the container |
+| `restart: unless-stopped` | Starts again after a crash or reboot, unless you stopped it yourself |
+| `healthcheck` | Every 10 s, runs `RETURN 0;` through `mgconsole`. The container is `healthy` only when it answers queries, not just when the process is up. |
+| `lab: ports 3010:3000` | Lab listens on 3000 inside its container, mapped to 3010 on your PC |
+| `QUICK_CONNECT_MG_HOST: memgraph` | Inside Compose's network, containers reach each other by **service name**, so Lab connects to `memgraph:7687` |
+| `depends_on … service_healthy` | Lab starts only after the database is healthy |
+
+Check that the flags took effect. The `current_value` column is what's running, and `default_value` is what it would be without our flags:
+
+```cypher
+SHOW CONFIG;
+```
+
+### Everyday commands
+
+| Command | Does |
+|---|---|
+| `npm run graph:up` | `docker compose up -d --wait`: starts both containers and waits until they're healthy |
+| `npm run graph:sync` | Loads the catalog from the Route API |
+| `npm run graph:down` | Stops and removes both containers. **The data stays in the volume.** |
+| `docker compose ps` | Status and health |
+| `docker compose logs -f memgraph` | Follow the database log |
+| `docker exec -it nova-memgraph mgconsole` | A Cypher prompt in your terminal, no Lab needed |
+| `docker compose down -v` | Removes the containers **and deletes the data volume**. Only for a clean reset. |
+
+### Proving persistence
+
+This was tested during the migration: `npm run graph:down` removed both containers, `npm run graph:up` created brand-new ones, and `MATCH (n) RETURN count(n)` still returned all **128** nodes. Memgraph loaded the latest snapshot from the volume on startup.
+
+What's on disk:
+
+```cypher
+SHOW SNAPSHOTS;    // path, time and size of each snapshot (about 50 KiB for this catalog)
+CREATE SNAPSHOT;   // take one now, e.g. before an experiment
+```
+
+### Backups
+
+This graph can always be rebuilt with `npm run graph:sync`, so backups are optional. Once the graph holds data that exists nowhere else, such as computed similarity edges or customer data, you'll want them.
+
+**Option 1: a Cypher dump.** This is portable and human-readable. It writes `CREATE` statements for every node, edge, index and constraint:
+
+```powershell
+"DUMP DATABASE;" | docker exec -i nova-memgraph mgconsole --output-format=cypherl | Out-File -Encoding utf8 graph-backup.cypherl
+```
+
+Windows PowerShell 5.1 can write `>` redirects as UTF-16, so `Out-File -Encoding utf8` keeps the file readable by `mgconsole`.
+
+This was tested on the catalog: 315 lines. You restore by replaying the file into an empty database through `mgconsole`. That direction hasn't been tested here.
+
+**Option 2: copy the snapshot files** out of the volume, which is faster for large graphs:
+
+```powershell
+docker cp nova-memgraph:/var/lib/memgraph/snapshots ./memgraph-snapshots
+```
+
+### Graph algorithms with MAGE
+
+The `memgraph-mage` image includes MAGE: about 40 modules of ready-made graph algorithms, called with `CALL`. List them:
+
+```cypher
+CALL mg.procedures() YIELD name RETURN name ORDER BY name;
+```
+
+Three that already say something about this catalog:
+
+**PageRank**, the most central nodes:
+
+```cypher
+CALL pagerank.get() YIELD node, rank
+RETURN labels(node)[0] AS label, coalesce(node.name, node.title) AS name, round(rank * 1000) / 1000 AS rank
+ORDER BY rank DESC LIMIT 5;
+```
+
+Result: Electronics, Men's Fashion, Women's Fashion, then the Men's Clothing subcategory.
+
+**Community detection**, clusters found with no hints from us:
+
+```cypher
+CALL community_detection.get() YIELD node, community_id
+WITH community_id, collect(coalesce(node.name, node.title)) AS members
+RETURN community_id, size(members) AS size, members[0..4] AS sample
+ORDER BY size DESC;
+```
+
+It finds the three departments on its own: Electronics (36 nodes), Men's (28), Women's (14). A fourth group of 50 holds the empty categories and brands with no products, which have no edges.
+
+**Brand overlap**, hand-written with list comprehensions, which are new in 3.x. It answers "which brands sell the same kinds of things as Samsung?":
+
+```cypher
+MATCH (b:Brand)<-[:MADE_BY]-(:Product)-[:IN_SUBCATEGORY]->(s:Subcategory)
+WITH b, collect(DISTINCT s.name) AS subs
+WITH collect({b: b.name, subs: subs}) AS all
+UNWIND all AS x UNWIND all AS y
+WITH x, y WHERE x.b = "Samsung" AND y.b <> x.b
+WITH y.b AS other,
+     size([s IN x.subs WHERE s IN y.subs]) AS shared,
+     size(x.subs) + size(y.subs) - size([s IN x.subs WHERE s IN y.subs]) AS total
+WHERE shared > 0
+RETURN other, round(100.0 * shared / total) AS overlapPct
+ORDER BY overlapPct DESC;
+```
+
+Result: Toshiba 50%, SONY 33%. Asked *"I like Samsung, which other brands sell similar kinds of products?"*, the chatbot independently pointed to SONY and Toshiba using its graph tools.
+
+With 56 products these mostly confirm what you can already see. They pay off once there's more structure, for example `(:Customer)-[:ORDERED]->(:Product)` edges, where community detection finds shopper groups and similarity finds "bought together".
+
+### Upgrading Memgraph later
+
+1. Read the release notes for the new version.
+2. Take a backup: `CREATE SNAPSHOT;`, or the dump above.
+3. Change the tag in `docker-compose.yml`, for example `3.14.0` → `3.15.0`.
+4. Run `npm run graph:up`. Compose pulls the new image and recreates only the containers that changed.
+5. Run `npm run graph:sync`, and re-run the tool checks from Lesson 10.
+
+For a **major** jump like 2.x → 3.x, start from an empty volume and re-sync, as this project did. That's simpler and safer than relying on old snapshots loading in a new major version.
+
+### Things this setup deliberately doesn't do
+
+| Not done | Why, and when to add it |
+|---|---|
+| **Authentication** | Local only, and the ports are on your own machine. Before exposing it anywhere, create a user (`CREATE USER nova IDENTIFIED BY '…';`) and set `MEMGRAPH_USER` / `MEMGRAPH_PASSWORD`. |
+| **TLS** | Not needed for localhost. Hosted instances should use `bolt+s://`. |
+| **Running in production** | Vercel can't run Docker containers. Production needs Memgraph Cloud or a server you run Docker on (Lesson 13). |

@@ -6,6 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "graph:up": "docker compose up -d --wait",
+    "graph:down": "docker compose down",
     "graph:sync": "tsx --env-file-if-exists=.env scripts/sync-graph.ts"
   },
   "dependencies": {
