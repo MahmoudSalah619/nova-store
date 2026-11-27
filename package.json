@@ -5,12 +5,14 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "graph:sync": "tsx --env-file-if-exists=.env scripts/sync-graph.ts"
   },
   "dependencies": {
     "@langchain/core": "^1.5.0",
     "@langchain/openrouter": "^0.4.26",
     "langchain": "^1.6.7",
+    "neo4j-driver": "^6.3.2",
     "next": "16.4.6",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -22,6 +24,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "tailwindcss": "4.3.3",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }

@@ -46,7 +46,8 @@ export type Product = {
   images: string[];
   category: Category;
   brand?: Brand;
-  subcategory: { _id: string; name: string }[];
+  /** Embedded subcategories, each with its parent category id. */
+  subcategory: { _id: string; name: string; slug: string; category: string }[];
   ratingsAverage: number;
   ratingsQuantity: number;
   reviews?: Review[];

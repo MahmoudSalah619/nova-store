@@ -1,26 +1,9 @@
 import { cacheLife, cacheTag } from "next/cache";
 
+import { getAllPages, getJSON } from "./store-api";
 import { API_BASE, type Brand, type Category, type ListResponse, type Product, type Subcategory } from "./types";
 
 export type { Brand, Category, Product, Review, Subcategory } from "./types";
-
-async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`);
-  if (!res.ok) throw new Error(`API ${res.status} for ${path}`);
-  return res.json();
-}
-
-/** Every item of a paginated list. The API caps a page at 50, so walk all pages. */
-async function getAllPages<T>(path: string): Promise<T[]> {
-  const sep = path.includes("?") ? "&" : "?";
-  const first = await getJSON<ListResponse<T>>(`${path}${sep}limit=50&page=1`);
-  const rest = await Promise.all(
-    Array.from({ length: first.metadata.numberOfPages - 1 }, (_, i) =>
-      getJSON<ListResponse<T>>(`${path}${sep}limit=50&page=${i + 2}`),
-    ),
-  );
-  return [first, ...rest].flatMap((r) => r.data);
-}
 
 export async function getProducts(): Promise<Product[]> {
   "use cache";
