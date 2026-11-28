@@ -23,3 +23,6 @@ export type ChatStreamEvent =
 
 /** What a tool writes through `runtime.writer`. */
 export type ToolStreamPayload = { type: "status"; label: string } | { type: "action"; action: ClientAction };
+
+/** What graph nodes write to the `custom` stream: tool payloads plus the scope guard's refusal. */
+export type GraphStreamPayload = ToolStreamPayload | { type: "denied"; text: string };

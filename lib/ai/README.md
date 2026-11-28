@@ -1,6 +1,6 @@
 # Nova Assistant (AI)
 
-A LangChain agent that answers questions about the Nova store only. It calls the LLM through OpenRouter (`@langchain/openrouter`), so any OpenRouter model with tool calling works.
+A LangGraph agent (`@langchain/langgraph`, with LangChain models and tools) that answers questions about the Nova store only. It calls the LLM through OpenRouter (`@langchain/openrouter`), so any OpenRouter model with tool calling works.
 
 ## Setup
 
@@ -15,9 +15,10 @@ ChatWidget (browser)                      components/chat/
   └─ POST /api/chat  { messages, cart }   app/api/chat/route.ts
        1. validate body, length and rate limit
        2. verify the sign-in token  ─────► Route API /auth/verifyToken
-       3. scope guard  ─────────────────► scope-guard.ts  (IN_SCOPE / OUT_OF_SCOPE)
-            └─ out of scope → fixed reply from identity.ts, no agent call
-       4. agent.stream()  ──────────────► agent.ts  (LangChain createAgent + tools)
+       3. graph.stream()  ──────────────► agent.ts  (LangGraph StateGraph)
+            guard ── out of scope ──► "denied" event, fixed reply from identity.ts
+              └─► agent ⇄ tools        model call with tools / LangGraph ToolNode
+                    └─ over the limits ─► finish   final reply without tools
             └─ tools call the store API, write status + actions
   ◄── NDJSON events: text | status | action | denied | error | done
   └─ applies actions (cart, wishlist refresh, navigation)
@@ -31,8 +32,8 @@ ChatWidget (browser)                      components/chat/
 | `model.ts` | Creates the chat model (OpenRouter). The only file that knows the provider. |
 | `identity.ts` | Store facts and policies, page list, and the fixed out-of-scope reply. **Edit policies here.** |
 | `prompt.ts` | The agent's system prompt and the scope-guard prompt. |
-| `scope-guard.ts` | Layer 1 of scope enforcement: a classifier call before the agent. |
-| `agent.ts` | Builds the agent: model, tools, system prompt, call limits. |
+| `scope-guard.ts` | Layer 1 of scope enforcement: the classifier the graph's `guard` node runs. |
+| `agent.ts` | The LangGraph graph: guard → agent ⇄ tools → finish, call limits, live page state. |
 | `context.ts` | Per-request data tools can read (token, verified user, cart). Never sent to the model. |
 | `events.ts` | The stream protocol and the allow-list of browser actions. |
 | `tools/general.ts` | Store info, open a page, calculator, current time. |
@@ -65,7 +66,7 @@ To add a skill: write `skills/<name>.ts` exporting a `Skill`, then add it to `SK
 
 Models sometimes say "Done!" without calling the tool, especially when earlier messages claimed a change. Two things stop that:
 
-- **Live state:** the API route appends a `<page_state>` note with the real cart and sign-in status to the latest user message, so the model doesn't rely on the conversation.
+- **Live state:** the graph's `agent` node appends a `<page_state>` note with the real cart and sign-in status to the latest user message, so the model doesn't rely on the conversation.
 - **Receipts:** every action the page actually applies shows as a green line under the reply (e.g. "Removed … from cart"). The page writes these, not the model; any "(Applied: …)" text the model writes itself is stripped. Receipts are sent back in later turns so the model can tell real changes from claims.
 
 ## What the agent can't do (on purpose)
