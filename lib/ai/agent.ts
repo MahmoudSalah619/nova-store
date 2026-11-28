@@ -133,17 +133,19 @@ function buildGraph() {
     return { messages: [...skipped, ...ran.messages] };
   }
 
-  const afterGuard = (state: State) => (state.denied ? END : "agent");
+  // Routers return a branch name; the path maps below turn it into the next node. The names also label
+  // the arrows in the drawn graph (npm run agent:graph).
+  const afterGuard = (state: State) => (state.denied ? "out of scope" : "in scope");
 
   function afterAgent(state: State) {
     const last = state.messages[state.messages.length - 1];
-    if (!AIMessage.isInstance(last) || !last.tool_calls?.length) return END;
+    if (!AIMessage.isInstance(last) || !last.tool_calls?.length) return "replied";
     // Hard stops so one message can't loop forever or run up the bill. `finish` is the last model call,
     // so the agent stops one short of the model limit to leave room for it.
     const overModel = state.modelCalls >= AI_CONFIG.maxModelCallsPerTurn - 1;
     // toolCalls already includes the calls this message asks for.
     const overTools = state.toolCalls > AI_CONFIG.maxToolCallsPerTurn;
-    return overModel || overTools ? "finish" : "tools";
+    return overModel || overTools ? "over limits" : "tool calls";
   }
 
   return new StateGraph(ChatState)
@@ -152,8 +154,8 @@ function buildGraph() {
     .addNode("tools", runTools)
     .addNode("finish", finish)
     .addEdge(START, "guard")
-    .addConditionalEdges("guard", afterGuard, ["agent", END])
-    .addConditionalEdges("agent", afterAgent, ["tools", "finish", END])
+    .addConditionalEdges("guard", afterGuard, { "in scope": "agent", "out of scope": END })
+    .addConditionalEdges("agent", afterAgent, { "tool calls": "tools", "over limits": "finish", replied: END })
     .addEdge("tools", "agent")
     .addEdge("finish", END)
     .compile({ name: "nova-assistant" });
