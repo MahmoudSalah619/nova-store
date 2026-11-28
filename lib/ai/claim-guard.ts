@@ -17,7 +17,7 @@ import type { ToolStreamPayload } from "./events";
  */
 
 /** Tools that change the cart or wishlist. Add any new tool that does (open_page only navigates, so it isn't here). */
-const CHANGE_TOOLS = new Set([
+export const CHANGE_TOOLS = new Set([
   "add_to_cart",
   "update_cart_quantity",
   "remove_from_cart",

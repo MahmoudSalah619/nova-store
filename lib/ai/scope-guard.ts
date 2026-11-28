@@ -5,9 +5,12 @@ import { SCOPE_GUARD_PROMPT } from "./prompt";
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
+/** How the classifier runs. Exported so the drawn graph (npm run agent:graph) can show it. */
+export const SCOPE_GUARD_SETTINGS = { maxTokens: 1024, effort: "low", recentTurns: 6 } as const;
+
 let classifier: ReturnType<typeof createChatModel> | null = null;
 function getClassifier() {
-  classifier ??= createChatModel({ maxTokens: 1024, effort: "low" });
+  classifier ??= createChatModel({ maxTokens: SCOPE_GUARD_SETTINGS.maxTokens, effort: SCOPE_GUARD_SETTINGS.effort });
   return classifier;
 }
 
@@ -21,7 +24,7 @@ function getClassifier() {
  */
 export async function isInScope(history: ChatTurn[]): Promise<boolean> {
   if (!AI_CONFIG.scopeGuard) return true;
-  const recent = history.slice(-6);
+  const recent = history.slice(-SCOPE_GUARD_SETTINGS.recentTurns);
   const latest = recent[recent.length - 1];
   const earlier = recent
     .slice(0, -1)

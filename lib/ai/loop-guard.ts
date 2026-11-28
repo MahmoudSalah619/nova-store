@@ -12,7 +12,7 @@ import type { ToolCall } from "@langchain/core/messages/tool";
  * Only read-only catalog tools are covered. Cart, wishlist and account tools can legitimately be called
  * again after a change.
  */
-const CACHEABLE = new Set([
+export const CACHEABLE = new Set([
   "search_products",
   "get_product_details",
   "list_categories",
