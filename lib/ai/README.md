@@ -1,6 +1,6 @@
 # Nova Assistant (AI)
 
-A LangChain agent that answers questions about the Nova store only. It calls the LLM through OpenRouter (`@langchain/openrouter`), so any OpenRouter model with tool calling works.
+A LangGraph agent (`@langchain/langgraph`, with LangChain models and tools) that answers questions about the Nova store only. It calls the LLM through OpenRouter (`@langchain/openrouter`), so any OpenRouter model with tool calling works.
 
 ## Setup
 
@@ -15,9 +15,10 @@ ChatWidget (browser)                      components/chat/
   └─ POST /api/chat  { messages, cart }   app/api/chat/route.ts
        1. validate body, length and rate limit
        2. verify the sign-in token  ─────► Route API /auth/verifyToken
-       3. scope guard  ─────────────────► scope-guard.ts  (IN_SCOPE / OUT_OF_SCOPE)
-            └─ out of scope → fixed reply from identity.ts, no agent call
-       4. agent.stream()  ──────────────► agent.ts  (LangChain createAgent + tools)
+       3. graph.stream()  ──────────────► agent.ts  (LangGraph StateGraph)
+            guard ── out of scope ──► "denied" event, fixed reply from identity.ts
+              └─► agent ⇄ tools        model call with tools / LangGraph ToolNode
+                    └─ over the limits ─► finish   final reply without tools
             └─ tools call the store API, write status + actions
   ◄── NDJSON events: text | status | action | denied | error | done
   └─ applies actions (cart, wishlist refresh, navigation)
@@ -31,8 +32,8 @@ ChatWidget (browser)                      components/chat/
 | `model.ts` | Creates the chat model (OpenRouter). The only file that knows the provider. |
 | `identity.ts` | Store facts and policies, page list, and the fixed out-of-scope reply. **Edit policies here.** |
 | `prompt.ts` | The agent's system prompt and the scope-guard prompt. |
-| `scope-guard.ts` | Layer 1 of scope enforcement: a classifier call before the agent. |
-| `agent.ts` | Builds the agent: model, tools, system prompt, call limits. |
+| `scope-guard.ts` | Layer 1 of scope enforcement: the classifier the graph's `guard` node runs. |
+| `agent.ts` | The LangGraph graph: guard → agent ⇄ tools → finish, call limits, live page state. |
 | `context.ts` | Per-request data tools can read (token, verified user, cart). Never sent to the model. |
 | `events.ts` | The stream protocol and the allow-list of browser actions. |
 | `tools/general.ts` | Store info, open a page, calculator, current time. |
@@ -65,10 +66,10 @@ To add a skill: write `skills/<name>.ts` exporting a `Skill`, then add it to `SK
 
 Models sometimes say "Done!" without calling the tool, especially when earlier messages claimed a change. Three things stop that:
 
-- **Live state:** the API route appends a `<page_state>` note with the real cart and sign-in status to the latest user message, so the model doesn't rely on the conversation.
+- **Live state:** the graph's `agent` node appends a `<page_state>` note with the real cart and sign-in status to the latest user message, so the model doesn't rely on the conversation.
 - **Receipts:** every action the page actually applies shows as a green line under the reply (e.g. "Removed … from cart"). The page writes these, not the model; any "(Applied: …)" text the model writes itself is stripped. Receipts are sent back in later turns so the model can tell real changes from claims.
-- **Claim guard** (`claim-guard.ts`): middleware that checks every final reply. If it says something was added, set, removed or saved but no change tool succeeded since the user's message, names a product no successful tool call changed, or states a count the tool results don't show (e.g. "added 5" when the 10-per-product cap allowed 3), the model is asked again with a correction. The API route holds back each model call's text until the guard approves it, so rejected text never reaches the screen (no flicker), and the user sees the status line ("Thinking…", "Adding to your cart…") meanwhile. If the second answer still claims a change, a fixed "Sorry, I couldn't make that change" reply is shown instead. The same guard asks for an English rewrite when a reply comes back in Arabic, and drops any text the model writes alongside a tool call ("Let me check…").
-- **Loop guard** (`loop-guard.ts`): an identical catalog lookup repeated in one turn isn't run again; the model is told to answer or search differently. A model once repeated the same search until it hit the model-call limit.
+- **Claim guard** (`claim-guard.ts`): wraps every model call in the graph's `agent` and `finish` nodes and checks each final reply. If it says something was added, set, removed or saved but no change tool succeeded since the user's message, names a product no successful tool call changed, or states a count the tool results don't show (e.g. "added 5" when the 10-per-product cap allowed 3), the model is asked again with a correction. The API route holds back each model call's text until the guard approves it, so rejected text never reaches the screen (no flicker), and the user sees the status line ("Thinking…", "Adding to your cart…") meanwhile. If the second answer still claims a change, a fixed "Sorry, I couldn't make that change" reply is shown instead. The same guard asks for an English rewrite when a reply comes back in Arabic, and drops any text the model writes alongside a tool call ("Let me check…").
+- **Loop guard** (`loop-guard.ts`): checked by the graph's `tools` node. An identical catalog lookup repeated in one turn isn't run again; the model is told to answer or search differently. A model once repeated the same search until it hit the model-call limit.
 - **Emoji filter:** the API route removes emojis from streamed text, since models copy them from the chat history.
 
 ## What the agent can't do (on purpose)

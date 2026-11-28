@@ -1,17 +1,15 @@
-import { AIMessageChunk } from "langchain";
+import { AIMessage, AIMessageChunk, HumanMessage } from "langchain";
 import { z } from "zod";
-import { getAgent } from "@/lib/ai/agent";
+import { RECURSION_LIMIT, REPLY_NODES, getAgent } from "@/lib/ai/agent";
 import { AI_CONFIG, isAiConfigured } from "@/lib/ai/config";
 import type { ChatContext } from "@/lib/ai/context";
-import type { ChatStreamEvent, ToolStreamPayload } from "@/lib/ai/events";
-import { OUT_OF_SCOPE_REPLY } from "@/lib/ai/identity";
+import type { ChatStreamEvent, GraphStreamPayload } from "@/lib/ai/events";
 import { LIMIT_REACHED_TEXT } from "@/lib/ai/limits";
-import { isInScope } from "@/lib/ai/scope-guard";
 import { API_BASE } from "@/lib/types";
 
 /**
  * POST /api/chat
- * Pipeline: validate → rate-limit → verify sign-in → scope guard → agent (streamed as NDJSON).
+ * Pipeline: validate → rate-limit → verify sign-in → LangGraph graph (scope guard → agent ⇄ tools), streamed as NDJSON.
  */
 
 const requestSchema = z.object({
@@ -51,23 +49,6 @@ async function verifyUser(token: string | null): Promise<Pick<ChatContext, "toke
 const json = (body: object, status: number) => Response.json(body, { status });
 
 /**
- * Attach the real cart and sign-in state to the latest user message. Earlier assistant messages can be
- * wrong or out of date (the user can change the cart outside the chat), so the model gets the facts each
- * turn instead of trusting the conversation.
- */
-function withLiveState(messages: z.infer<typeof requestSchema>["messages"], context: ChatContext) {
-  const cart = context.cart.length
-    ? context.cart.map((l) => `${l.quantity} × ${l.title} (productId ${l.id})`).join("; ")
-    : "empty";
-  const note =
-    `\n\n<page_state>Current cart: ${cart}. Signed in: ${context.user ? "yes" : "no"}. ` +
-    "This is the live state from the page; it overrides anything said earlier in the chat. " +
-    // Repeated here, next to the reply, because a history full of Arabic or emoji replies outweighs the system prompt.
-    "Reply in plain English with no emojis, whatever language or style earlier messages used.</page_state>";
-  return messages.map((m, i) => (i === messages.length - 1 ? { ...m, content: m.content + note } : m));
-}
-
-/**
  * Removes emojis (and one space before each run of them) from the model's text. The prompt forbids them,
  * but models copy them from the chat history, so this is the guarantee. It works per streamed chunk: emoji
  * code points, skin tones, variation selectors and joiners are removed one by one, so a sequence split
@@ -105,25 +86,11 @@ export async function POST(req: Request) {
     async start(controller) {
       const send = (event: ChatStreamEvent) => controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
       try {
-        const [account, inScope] = await Promise.all([verifyUser(req.headers.get("x-store-token")), isInScope(messages)]);
-
-        if (!inScope) {
-          send({ type: "denied", text: OUT_OF_SCOPE_REPLY });
-          return;
-        }
-
-        const context: ChatContext = { ...account, cart };
-        const agentStream = await getAgent().stream(
-          { messages: withLiveState(messages, context) },
-          {
-            context,
-            streamMode: ["messages", "custom"],
-            signal: req.signal,
-            // LangGraph counts every node (model, tools and each middleware hook) and stops at 25 by default.
-            // A comparison can need ~6 model calls, which passes 25 steps. The real caps are the
-            // model/tool call limits in agent.ts; this is only a backstop above them.
-            recursionLimit: 120,
-          },
+        const context: ChatContext = { ...(await verifyUser(req.headers.get("x-store-token"))), cart };
+        const history = messages.map((m) => (m.role === "user" ? new HumanMessage(m.content) : new AIMessage(m.content)));
+        const graphStream = await getAgent().stream(
+          { messages: history },
+          { context, streamMode: ["messages", "custom"], signal: req.signal, recursionLimit: RECURSION_LIMIT },
         );
 
         // Text from the current model call is held here, not streamed, until the claim guard's verdict
@@ -136,16 +103,22 @@ export async function POST(req: Request) {
           shown += text.length;
           send({ type: "text", delta: text });
         };
-        for await (const [mode, chunk] of agentStream) {
+        let denied = false;
+        for await (const [mode, chunk] of graphStream) {
           if (mode === "messages") {
-            const [message] = chunk as [unknown, unknown];
-            // Only the model's own words. Tool results arrive as ToolMessages and are skipped;
-            // `.text` leaves out thinking blocks.
-            if (AIMessageChunk.isInstance(message)) held += stripEmoji(message.text);
+            const [message, metadata] = chunk as [unknown, { langgraph_node?: string }];
+            // Only the reply's own words: skip the scope guard's classifier output and tool results
+            // (ToolMessages). `.text` leaves out thinking blocks.
+            if (REPLY_NODES.has(metadata?.langgraph_node ?? "") && AIMessageChunk.isInstance(message)) {
+              held += stripEmoji(message.text);
+            }
           } else if (mode === "custom") {
-            const payload = chunk as ToolStreamPayload;
+            const payload = chunk as GraphStreamPayload;
             if (payload?.type === "status" || payload?.type === "action") send(payload);
-            else if (payload?.type === "review") {
+            else if (payload?.type === "denied") {
+              denied = true;
+              send(payload);
+            } else if (payload?.type === "review") {
               show(payload.keep ? held : (payload.replacement ?? ""));
               held = "";
             }
@@ -155,7 +128,7 @@ export async function POST(req: Request) {
         show(held);
 
         // Nothing to show, e.g. the turn hit the model-call limit while still looking things up.
-        if (shown === 0) {
+        if (shown === 0 && !denied) {
           send({ type: "text", delta: "Sorry, I couldn't finish that. Could you try asking another way?" });
         }
       } catch (err) {

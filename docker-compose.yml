@@ -1,0 +1,50 @@
+# Local Memgraph for the shopping assistant's graph tools (docs/memgraph/README.md).
+#   npm run graph:up     start Memgraph + Lab (http://localhost:3010)
+#   npm run graph:sync   load the catalog from the Route API
+#   npm run graph:down   stop both; data stays in the mg_lib volume
+name: nova-store
+
+services:
+  memgraph:
+    # Database plus the MAGE algorithm library (pagerank, community_detection, node_similarity, ...).
+    image: memgraph/memgraph-mage:3.14.0
+    container_name: nova-memgraph
+    ports:
+      - "7687:7687" # Bolt: the driver and Lab connect here
+      - "7444:7444" # Log stream that Lab reads
+    command:
+      - --log-level=WARNING
+      - --also-log-to-stderr
+      - --query-execution-timeout-sec=10 # stop runaway queries
+      - --memory-limit=2048 # MB
+      - --telemetry-enabled=false
+      - --storage-snapshot-interval-sec=300
+      - --storage-snapshot-on-exit=true
+      - --storage-wal-enabled=true
+    volumes:
+      - mg_lib:/var/lib/memgraph # data, snapshots, WAL: survives container removal
+      - mg_log:/var/log/memgraph
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "echo 'RETURN 0;' | mgconsole || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  lab:
+    image: memgraph/lab:3.14.3
+    container_name: nova-memgraph-lab
+    ports:
+      - "3010:3000" # Lab on 3010 so Next.js keeps 3000
+    environment:
+      QUICK_CONNECT_MG_HOST: memgraph # service name on the Compose network
+      QUICK_CONNECT_MG_PORT: 7687
+    depends_on:
+      memgraph:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  mg_lib:
+  mg_log:

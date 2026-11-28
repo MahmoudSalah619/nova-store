@@ -1,4 +1,4 @@
-import { AIMessage, createMiddleware, HumanMessage, ToolMessage, type BaseMessage } from "langchain";
+import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from "langchain";
 import type { ToolStreamPayload } from "./events";
 
 /**
@@ -11,7 +11,7 @@ import type { ToolStreamPayload } from "./events";
  * - A final reply in Arabic script breaks the English-only rule (history full of Arabic replies pulls models back).
  * - Text written alongside a tool call (narration, or a claim before the tool has run) is never kept.
  *
- * The API route holds each model call's text until this guard's verdict, so rejected text is never shown.
+ * Used by the graph's agent and finish nodes (agent.ts). The API route holds each model call's text until this guard's verdict, so rejected text is never shown.
  * On a false claim or wrong language, the text is dropped and the model is asked once more
  * with a correction. If the second answer still claims a false change, a fixed honest reply replaces it.
  */
@@ -208,54 +208,52 @@ const LANGUAGE_CORRECTION =
 export const HONEST_FALLBACK =
   "Sorry, I couldn't make that change. Please try again, or update it yourself on [your cart](/cart).";
 
-export const claimGuardMiddleware = () =>
-  createMiddleware({
-    name: "claimGuard",
-    wrapModelCall: async (request, handler) => {
-      // The API route holds each model call's text until it hears the verdict here, so rejected text is never
-      // shown: "keep" releases it, "drop" discards it (and can send a fixed replacement instead).
-      const verdict = (keep: boolean, replacement?: string) =>
-        request.runtime.writer?.({ type: "review", keep, replacement } satisfies ToolStreamPayload);
-      const first = await handler(request);
-      if (!AIMessage.isInstance(first)) return first;
+/**
+ * Runs one model call through the guard. `call` makes the model call for the given messages; `messages` is
+ * the conversation it sees (without the system prompt). `writer` is the graph's custom stream, where the
+ * verdict goes: the API route holds each model call's text until it hears it, so rejected text is never
+ * shown. "keep" releases it, "drop" discards it (and can send a fixed replacement instead).
+ */
+export async function guardedModelCall(
+  call: (messages: BaseMessage[]) => Promise<AIMessage>,
+  messages: BaseMessage[],
+  writer: ((chunk: ToolStreamPayload) => void) | undefined,
+): Promise<AIMessage> {
+  const verdict = (keep: boolean, replacement?: string) => writer?.({ type: "review", keep, replacement });
+  const first = await call(messages);
 
-      // Text written alongside a tool call is either narration ("Let me check…") or a claim made before the
-      // tool has run ("Done, added it!"), which may still fail. Neither belongs in the answer: drop it.
-      // The reply after the tool results says what really happened.
-      if (first.tool_calls?.length) {
-        verdict(false);
-        return first;
-      }
-      const falseClaim = isFalseFinalReply(first, request.messages);
-      const notEnglish = isNotEnglish(first.text);
-      if (!falseClaim && !notEnglish) {
-        verdict(true);
-        return first;
-      }
+  // Text written alongside a tool call is either narration ("Let me check…") or a claim made before the
+  // tool has run ("Done, added it!"), which may still fail. Neither belongs in the answer: drop it.
+  // The reply after the tool results says what really happened.
+  if (first.tool_calls?.length) {
+    verdict(false);
+    return first;
+  }
+  const falseClaim = isFalseFinalReply(first, messages);
+  const notEnglish = isNotEnglish(first.text);
+  if (!falseClaim && !notEnglish) {
+    verdict(true);
+    return first;
+  }
 
-      verdict(false);
-      console.warn(`[chat] reply rejected (${[falseClaim && "false claim", notEnglish && "not English"].filter(Boolean).join(", ")}); asking the model again`);
+  verdict(false);
+  console.warn(`[chat] reply rejected (${[falseClaim && "false claim", notEnglish && "not English"].filter(Boolean).join(", ")}); asking the model again`);
 
-      const corrections = [falseClaim && CORRECTION, notEnglish && LANGUAGE_CORRECTION].filter(Boolean).join("\n\n");
-      const second = await handler({
-        ...request,
-        messages: [...request.messages, first, new HumanMessage(corrections)],
-      });
-      if (!AIMessage.isInstance(second)) return second;
-      // The retry called a tool to make the change for real: same rule as above, its text is dropped.
-      if (second.tool_calls?.length) {
-        verdict(false);
-        return second;
-      }
-      // A second reply still in Arabic is let through: an answer in the wrong language beats no answer.
-      if (!isFalseFinalReply(second, request.messages)) {
-        verdict(true);
-        return second;
-      }
+  const corrections = [falseClaim && CORRECTION, notEnglish && LANGUAGE_CORRECTION].filter(Boolean).join("\n\n");
+  const second = await call([...messages, first, new HumanMessage(corrections)]);
+  // The retry called a tool to make the change for real: same rule as above, its text is dropped.
+  if (second.tool_calls?.length) {
+    verdict(false);
+    return second;
+  }
+  // A second reply still in Arabic is let through: an answer in the wrong language beats no answer.
+  if (!isFalseFinalReply(second, messages)) {
+    verdict(true);
+    return second;
+  }
 
-      // This reply doesn't come from a model call, so the route sends it as the replacement.
-      verdict(false, HONEST_FALLBACK);
-      console.warn("[chat] reply still claimed a change; sending the fixed reply");
-      return new AIMessage({ content: HONEST_FALLBACK, id: second.id });
-    },
-  });
+  // This reply doesn't come from a model call, so the route sends it as the replacement.
+  verdict(false, HONEST_FALLBACK);
+  console.warn("[chat] reply still claimed a change; sending the fixed reply");
+  return new AIMessage({ content: HONEST_FALLBACK, id: second.id });
+}

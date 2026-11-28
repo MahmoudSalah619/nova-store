@@ -1,4 +1,5 @@
-import { AIMessage, createMiddleware, HumanMessage, ToolMessage } from "langchain";
+import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from "langchain";
+import type { ToolCall } from "@langchain/core/messages/tool";
 
 /**
  * Stops the model from running the same lookup again and again in one turn.
@@ -30,28 +31,26 @@ const REPEAT_NOTE =
   "Don't repeat it. Answer with what you have, or try a different search: for a product type, pass it as " +
   "query (e.g. query 'pants'), because titles and descriptions name the type more often than the category does.";
 
-export const loopGuardMiddleware = () =>
-  createMiddleware({
-    name: "loopGuard",
-    wrapToolCall: async (request, handler) => {
-      const { toolCall, state } = request;
-      if (!CACHEABLE.has(toolCall.name)) return handler(request);
+/**
+ * If `toolCall` repeats a catalog lookup already answered in this turn, returns the note to send back
+ * instead of running it. Otherwise null. Called by the graph's tools node (agent.ts) for each call.
+ */
+export function repeatedLookup(toolCall: ToolCall, messages: BaseMessage[]): ToolMessage | null {
+  if (!CACHEABLE.has(toolCall.name)) return null;
 
-      const messages = state.messages;
-      let start = messages.length;
-      while (start > 0 && !HumanMessage.isInstance(messages[start - 1])) start--;
-      const turn = messages.slice(start);
+  let start = messages.length;
+  while (start > 0 && !HumanMessage.isInstance(messages[start - 1])) start--;
+  const turn = messages.slice(start);
 
-      const answered = new Set(turn.filter((m) => ToolMessage.isInstance(m)).map((m) => (m as ToolMessage).tool_call_id));
-      const wanted = key(toolCall.name, toolCall.args);
-      const repeat = turn.some(
-        (m) =>
-          AIMessage.isInstance(m) &&
-          (m.tool_calls ?? []).some((c) => c.id !== toolCall.id && c.id && answered.has(c.id) && key(c.name, c.args) === wanted),
-      );
-      if (!repeat) return handler(request);
+  const answered = new Set(turn.filter((m) => ToolMessage.isInstance(m)).map((m) => (m as ToolMessage).tool_call_id));
+  const wanted = key(toolCall.name, toolCall.args);
+  const repeat = turn.some(
+    (m) =>
+      AIMessage.isInstance(m) &&
+      (m.tool_calls ?? []).some((c) => c.id !== toolCall.id && c.id && answered.has(c.id) && key(c.name, c.args) === wanted),
+  );
+  if (!repeat) return null;
 
-      console.warn(`[chat] repeated ${toolCall.name} call skipped`);
-      return new ToolMessage({ content: REPEAT_NOTE, tool_call_id: toolCall.id ?? "", name: toolCall.name });
-    },
-  });
+  console.warn(`[chat] repeated ${toolCall.name} call skipped`);
+  return new ToolMessage({ content: REPEAT_NOTE, tool_call_id: toolCall.id ?? "", name: toolCall.name });
+}
